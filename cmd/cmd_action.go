@@ -74,13 +74,14 @@ func generateActionCmd(serviceName string, actionMeta map[string]*ByteplusMeta, 
 			var paramBody string
 			actionCmd.Flags().StringVar(&paramBody, "body", "", "")
 			var bodyStr []byte
-			params := []string{fmt.Sprintf(`body '%s'`, string(bodyStr))}
+			var params []string
 			if apiMeta != nil && apiMeta.Request != nil {
 				bodyMap := apiMeta.Request.GetReqBody()
 				bodyStr, _ = json.MarshalIndent(bodyMap, "", "    ")
-				params = append([]string{fmt.Sprintf(`body '%s'`, string(bodyStr))}, formatParamsHelpUsage(apiMeta.GetRequestParams())...)
+				params = formatParamsHelpUsage(apiMeta.GetRequestParams())
 			}
-			actionCmd.SetUsageTemplate(actionUsageTemplate(actionCmd.Long, params))
+			bodyParam := fmt.Sprintf(`body '%s'`, string(bodyStr))
+			actionCmd.SetUsageTemplate(jsonActionUsageTemplate(actionCmd.Long, params, bodyParam))
 		}
 
 		actionCmd.Flags().BoolP("help", "h", false, "")
@@ -329,12 +330,37 @@ func normalizeMetaTypeKey(name string) string {
 }
 
 func actionUsageTemplate(description string, params []string) string {
-	sort.Strings(params)
+	return renderActionUsageTemplate(description, formatActionUsageParams(params, "  "))
+}
 
-	for i := 0; i < len(params); i++ {
-		params[i] = "  --" + params[i]
+func jsonActionUsageTemplate(description string, params []string, bodyParam string) string {
+	sections := make([]string, 0, 2)
+	if len(params) > 0 {
+		sections = append(sections, fmt.Sprintf("  Parameter Form:\n%s", formatActionUsageParams(params, "    ")))
+	}
+	if bodyParam != "" {
+		sections = append(sections, fmt.Sprintf("  JSON Form:\n%s", formatActionUsageParams([]string{bodyParam}, "    ")))
 	}
 
+	parameterHelp := strings.Join(sections, "\n\n")
+	if parameterHelp != "" {
+		parameterHelp = "\n" + parameterHelp
+	}
+	return renderActionUsageTemplate(description, parameterHelp)
+}
+
+func formatActionUsageParams(params []string, indent string) string {
+	formatted := append([]string(nil), params...)
+	sort.Strings(formatted)
+
+	for i := 0; i < len(formatted); i++ {
+		param := "--" + formatted[i]
+		formatted[i] = indent + strings.ReplaceAll(param, "\n", "\n"+indent)
+	}
+	return strings.Join(formatted, "\n")
+}
+
+func renderActionUsageTemplate(description, parameterHelp string) string {
 	description = strings.TrimSpace(description)
 	if description != "" {
 		description += "\n\n"
@@ -354,5 +380,5 @@ Fixed Flags:
   ---region string     Override the region only for this invocation.
   ---endpoint string   Override the endpoint only for this invocation.
 
-`, description, strings.Join(params, "\n"))
+`, description, parameterHelp)
 }
