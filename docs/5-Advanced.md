@@ -70,7 +70,7 @@ echo "autoload -U compinit; compinit" >> ~/.zshrc
 Install the completion script:
 
 ```shell
-bp completion zsh > "${fpath[1]}/_ve"
+bp completion zsh > "${fpath[1]}/_bp"
 ```
 
 Start a new shell, or run:
@@ -196,7 +196,7 @@ bp upgrade --version 1.0.49
 
 For standalone installs, only a version **newer** than the running binary is installed: without `--version` the CLI upgrades to latest (a stale manifest never rolls back); with `--version` the pin must still be newer than current. To use an older build, reinstall from the official release page.
 
-Standalone flow: download the platform zip and checksum from the official CDN (`https://cloudcache.volccdn.com/bp`), verify SHA256, then atomically replace the running binary. On failure the previous binary is kept/restored. If either CDN artifact is unavailable, the CLI falls back to GitHub Releases. On Windows, a temporary helper completes replacement after the running process exits and reports the final result through the same stdout/stderr streams.
+Standalone flow: download the platform zip and checksum from the official CDN (`https://byteplus-cli.tos-ap-southeast-1.bytepluses.com/bp`), verify SHA256, then atomically replace the running binary. On failure the previous binary is kept/restored. If either CDN artifact is unavailable, the CLI falls back to GitHub Releases. On Windows, a temporary helper completes replacement after the running process exits and reports the final result through the same stdout/stderr streams.
 
 ### Version check and upgrade notice
 

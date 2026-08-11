@@ -12,7 +12,7 @@ When a service command creates an SDK client, credentials and runtime settings a
 
 1. `--profile`: applies only to the current invocation and must reference an existing profile.
 2. The `current` profile in the config file.
-3. The profile named by `BYTEPLUS_PROFILE` or `VOLCSTACK_PROFILE`.
+3. The profile named by `BYTEPLUS_PROFILE` or `BYTEPLUS_CLI_PROFILE`.
 4. The SDK default credential chain: environment variables, OIDC, CLI config provider, ECS instance role, and other SDK providers.
 
 Region priority:
