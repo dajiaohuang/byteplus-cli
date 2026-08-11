@@ -1,4 +1,4 @@
-[Configuration](3-Configuration.md) | Usage | [Advanced Usage](5-Advanced.md)
+[← Configuration](3-Configuration.md) | Usage | [Advanced Usage →](5-Advanced.md)
 
 ---
 
@@ -7,10 +7,18 @@
 Basic command format:
 
 ```shell
-bp <service> <action> [--Param value ...] [---profile name] [---region region] [---endpoint endpoint]
+bp <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
+                      [--profile name] [--region region] [--endpoint endpoint] 
+                      [--version api-version] [--method GET|POST] [--force]
 ```
 
-`--Param value` is an API parameter. `---profile`, `---region`, and `---endpoint` are CLI fixed flags.
+Argument kinds:
+
+- **API parameters**: double-dash `--Param value` (enter request body/query; reserved names `body` / `header` excluded)
+- **Public system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--version` / `--method` / `--force`
+- **Reserved double-dash controls**: `--header` (HTTP headers), `--body` (JSON body); **not** API parameters
+
+System flags in API calls use double hyphens and are placed after the action. If an action exposes an exact-name API parameter (case-sensitive), the double-dash form is parsed as the API parameter.
 
 ## Discover Services and Actions
 
@@ -31,6 +39,15 @@ Show action parameters:
 ```shell
 bp ecs DescribeInstances --help
 ```
+
+By default, `-h` / `--help` uses concise mode and shows parameter names, types, and required status without loading the full parameter corpus. Use detail mode to include descriptions and examples:
+
+```shell
+bp ecs DescribeInstances -h --detail
+bp ecs DescribeInstances --help --detail
+```
+
+Using `--detail` by itself does not trigger help.
 
 Show version:
 
@@ -63,38 +80,71 @@ Parameter names and values are separated by spaces. The supported syntax is:
 
 ```shell
 --Param value
----region ap-southeast-1
+--region ap-southeast-1
 ```
 
-Both `--Param value` and `--Param=value` are supported. Fixed flags also support `---region value` and `---region=value`.
+Do not use `--Param=value` or `--region=ap-southeast-1`. Flag names and values must be separated by a space.
 
-## CLI Fixed Flags
+## CLI System Flags
 
-Fixed flags use three hyphens `---` and do not conflict with API parameters:
+Public system flags use the standard double-hyphen form:
 
 | Flag | Purpose |
 | --- | --- |
-| `---profile` | Use a specific profile for this invocation without changing current |
-| `---region` | Override region for this invocation |
-| `---endpoint` | Override endpoint for this invocation and clear endpoint resolver |
+| `--profile` | Use a specific profile for this invocation without changing current |
+| `--region` | Override region for this invocation |
+| `--endpoint` | Override endpoint for this invocation and clear endpoint resolver |
+| `--version` | Set the **API version** for this call; if omitted, uses the bundled service version (not the CLI binary version from root `bp -v` / `bp --version` / `bp version`) |
+| `--force` | Skip service/action metadata validation and force-call unlisted or newly released APIs; **unlisted services** require `--version` and a fixed endpoint (`--endpoint` or profile/`BYTEPLUS_ENDPOINT` when resolver is not `standard`); bundled services can fall back to metadata. Presence-only: write `--force` alone, not `--force true` |
+| `--method` | HTTP method (`GET`/`POST`); same rules on normal and `--force` paths: explicit value wins, else action metadata, else `GET` |
+
+After the action, a double-dash flag whose exact case-sensitive name is exposed by that action is parsed as an API parameter. Without such a conflict, it is parsed as a system flag.
+
+Names with different casing, such as `--Region` or `--Endpoint`, are always API parameters.
+
+
+### Reserved Double-Dash Controls
+
+| Flag | Purpose |
+| --- | --- |
+| `--header Name=Value` | Add an HTTP request header; **repeatable**; never enters the request body. `Content-Type` overrides metadata; last value wins for the same name |
+| `--body json` | JSON request body for `application/json` style calls; mutually exclusive with other API parameters |
+
+```shell
+bp sts GetCallerIdentity --header X-Custom-Trace=abc
+bp newsvc Act --force --version 2024-01-01 --endpoint open.byteplusapi.com \
+  --header Content-Type=application/json \
+  --header X-Feature=on \
+  --body '{"k":1}'
+```
+
+Notes:
+
+- Override `Content-Type` with `--header Content-Type=...`; forms with parameters (e.g. `application/json; charset=utf-8`) are still treated as JSON
+- With `--body` and no metadata, Content-Type defaults to `application/json`
+- `--header` can be used with `--body`; headers are not flattened API params and do not conflict with `--body`
+- Blocked header names: `Host`, `Authorization`, `Content-Length` (transport/signing)
+- Reserved names: `--header` and `--body` cannot be used as ordinary API parameter names
 
 Examples:
 
 ```shell
 # Use a specific profile
-bp ecs DescribeInstances ---profile prod
+bp ecs DescribeInstances --profile prod
 
 # Use a specific profile and override region
-bp ecs DescribeInstances ---profile prod ---region ap-southeast-1
+bp ecs DescribeInstances --profile prod --region ap-southeast-1
 
 # Override only region
-bp ecs DescribeInstances ---region ap-southeast-1
+bp ecs DescribeInstances --region cn-shanghai
 
 # Specify endpoint for an STS call
-bp sts GetCallerIdentity ---region ap-southeast-1 ---endpoint sts.byteplusapi.com
+bp sts GetCallerIdentity --region ap-southeast-1 --endpoint sts.byteplusapi.com
 ```
 
-If `---profile` references a profile that does not exist, the command returns an error.
+If `--profile` references a profile that does not exist, the command returns an error.
+
+The only current exact-name conflict is the 
 
 ## JSON Parameters
 
@@ -169,6 +219,18 @@ bp ecs DescribeInstances --NewServerSideParam value
 
 This is useful when the service has added a parameter but local metadata has not been updated yet.
 
+## Unlisted Services and Actions
+
+The CLI validates services and actions against built-in metadata. If the **service or action is not yet bundled**, use `--force` to bypass validation; unlisted services also require `--version` and a **fixed** endpoint (`--endpoint`, or profile / `BYTEPLUS_ENDPOINT` when `endpoint-resolver` is not `standard`) because the CLI has no metadata from which to resolve a host. Bundled services can omit these overrides in force mode and use metadata with the same endpoint rules as normal calls. See [Advanced Usage: Force Invocation](5-Advanced.md#force-invocation).
+
+```shell
+bp newservice DescribeNewResource \
+  --version 2024-01-01 \
+  --endpoint open.byteplusapi.com \
+  --SomeParam value \
+  --force
+```
+
 ## Common Scenarios
 
 Use current profile:
@@ -180,7 +242,7 @@ bp ecs DescribeInstances
 Use a non-current profile:
 
 ```shell
-bp ecs DescribeInstances ---profile prod
+bp ecs DescribeInstances --profile prod
 ```
 
 Use environment-based default credential chain:
@@ -197,16 +259,16 @@ Use an OIDC profile:
 ```shell
 bp configure set --profile ci-oidc --mode oidc --region ap-southeast-1 \
   --oidc-token-file /var/run/secrets/oidc-token \
-  --role-trn trn:iam::2000000000:role/CIRole
+  --role-trn trn:iam::2100000000:role/CIRole
 
-bp ecs DescribeInstances ---profile ci-oidc
+bp ecs DescribeInstances --profile ci-oidc
 ```
 
 Use an ECS instance role profile:
 
 ```shell
 bp configure set --profile ecs-role --mode ecsrole --region ap-southeast-1 --role-name MyRole
-bp ecs DescribeInstances ---profile ecs-role
+bp ecs DescribeInstances --profile ecs-role
 ```
 
 ## Common Errors
@@ -220,17 +282,12 @@ credentials not configured, please run 'bp login' or 'bp configure set', or set 
 Missing region:
 
 ```text
-region not set, please set it via profile, ---region flag, or BYTEPLUS_REGION environment variable
+region not set, please set it via profile, --region flag, or BYTEPLUS_REGION environment variable
 ```
 
-Unsupported fixed flag:
-
-```text
----debug is not supported, supported fixed flags: ---profile, ---region, ---endpoint
-```
-
-The only supported fixed flags are `---profile`, `---region`, and `---endpoint`.
+Public system flags (double-dash): `--profile`, `--region`, `--endpoint`, `--force`, `--version`, `--method`.
+Reserved double-dash controls: `--header`, `--body` (see “Reserved Double-Dash Controls” above).
 
 ---
 
-[Configuration](3-Configuration.md) | Usage | [Advanced Usage](5-Advanced.md)
+[← Configuration](3-Configuration.md) | Usage | [Advanced Usage →](5-Advanced.md)

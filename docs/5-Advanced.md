@@ -1,10 +1,10 @@
-[Usage](4-Usage.md) | Advanced Usage
+[← Usage](4-Usage.md) | Advanced Usage
 
 ---
 
 ## Advanced Usage
 
-This document covers shell completion, colored output, debug logs, and common questions. These features are not required for API calls, but they improve daily ergonomics and troubleshooting.
+This document covers shell completion, colored output, debug logs, `--force` invocation, and common questions. These features are not required for API calls, but they improve daily ergonomics and troubleshooting.
 
 ## Shell Completion
 
@@ -171,38 +171,205 @@ Sensitive fields are masked, including common AK/SK, token, password, signature,
 Debug inspection example:
 
 ```shell
-BYTEPLUS_CLI_DEBUG=true bp sts GetCallerIdentity ---region ap-southeast-1
+BYTEPLUS_CLI_DEBUG=true bp sts GetCallerIdentity --region ap-southeast-1
 tail -n 100 ~/.byteplus/logs/$(date +%Y%m%d%H).log
+```
+
+## Self-upgrade (`bp upgrade`)
+
+Behavior depends on how `bp` was installed:
+
+| Install source | Default action |
+|------------|------------|
+| **Homebrew** (macOS/Linux; Homebrew/Linuxbrew/Cellar paths) | `brew update` then `brew upgrade byteplus-cli` (network required; `--version` not supported) |
+| **npm** (`node_modules/@byteplus/cli`) | Runs `npm install -g @byteplus/cli@...` (network required); no in-place binary replace; on failure prints the manual command and exits non-zero |
+| **standalone** (Release zip, source build, etc.) | Download and replace the current binary in place |
+
+```shell
+bp upgrade              # source-aware: brew / npm delegate / standalone self-upgrade
+bp upgrade --yes        # skip confirmation for standalone in-place (never implies package-manager upgrade)
+bp upgrade --version 1.0.49
+#   standalone: install that version in place (must be newer than current; no downgrade)
+#   npm: runs "npm install -g @byteplus/cli@1.0.49" (rejected if older than current; on failure prints manual command)
+#   Homebrew: errors (use brew to manage versions)
+```
+
+For standalone installs, only a version **newer** than the running binary is installed: without `--version` the CLI upgrades to latest (a stale manifest never rolls back); with `--version` the pin must still be newer than current. To use an older build, reinstall from the official release page.
+
+Standalone flow: download the platform zip and checksum from the official CDN (`https://cloudcache.volccdn.com/bp`), verify SHA256, then atomically replace the running binary. On failure the previous binary is kept/restored. If either CDN artifact is unavailable, the CLI falls back to GitHub Releases. On Windows, a temporary helper completes replacement after the running process exits and reports the final result through the same stdout/stderr streams.
+
+### Version check and upgrade notice
+
+On any `bp` invocation the CLI may start a lightweight background version check (at most once every 24 hours by default; about 1.5s network timeout). Command exit never waits for an in-flight check. If a cached or already-completed check finds a newer version, the CLI prints a notice to **stderr** (the suggested command is install-source aware); it never writes to stdout, so pipelines stay intact.
+
+Upgrade notices are throttled by **running current version + local calendar day**: the same `current` version is reminded at most once per day; after the user upgrades (`current` changes), another notice is allowed the same day (e.g. 1.50→1.51 while latest is already 1.52). State is stored as `noticed_at` / `noticed_current` in the check cache. Disabling the version check also disables notices.
+
+Environment variables:
+
+| Variable | Description |
+|--------|----------|
+| `BYTEPLUS_CLI_DISABLE_UPDATE_CHECK=1` | Disable background version checks and notices |
+| `BYTEPLUS_CLI_UPDATE_CHECK_TTL_HOURS` | Cache TTL in hours (default 24) |
+| `BYTEPLUS_CLI_DOWNLOAD_BASE_URL` | Override download base URL (default CDN) |
+| `BYTEPLUS_CLI_INSTALL_METHOD` | Override install detection: `standalone`, `npm`, or `homebrew` |
+
+Cache file: `~/.byteplus/cli/version_check.json`.
+
+<a id="force-invocation"></a>
+
+## Force Invocation
+
+The CLI ships with metadata for a subset of cloud products. In normal mode it validates that the service and action exist. If a product or API is not yet bundled, or local metadata lags behind the service, you may see `unsupported action` or `unknown command`. Use `--force` to skip service/action validation and issue an RPC call directly.
+
+### When to Use It
+
+- Call a **service not yet listed** in metadata
+- Call a **new action** under a known service
+- Call an API with a **version not in bundled metadata** (via `--version`)
+
+Unknown API parameters already pass through in normal mode. `--force` mainly removes limits at the **service / action / API version** level.
+
+### Fixed Flag Requirements
+
+| Flag | Required | Description |
+| --- | --- | --- |
+| `--force` | Yes | Presence-only switch; enables force mode when present; does not accept `true`/`false` values |
+| `--version` | Depends on service | **Required for unlisted services**; **optional for bundled services**, falling back to metadata. Can also override the bundled API version |
+| `--endpoint` | Depends on service | Same as normal calls: `--endpoint` > `endpoint-resolver=standard` > profile/env endpoint > (bundled) resolve by service+region. **Unlisted** services need an effective **fixed host** (`endpoint-resolver=standard` or `auto-addressing` alone is not enough) |
+| `--method` | No | HTTP method: `GET` or `POST`; same on normal and force paths: explicit value → action metadata → default `GET` |
+| `--region` | Depends on config | Same as normal calls; a region must be resolvable |
+| `--header` | No | **Reserved double-dash control**, `Name=Value`, repeatable; custom HTTP headers. `Content-Type` overrides metadata; never enters the body. `Host`/`Authorization`/`Content-Length` are blocked |
+
+Notes:
+
+- `--version` is the **OpenAPI version**, not the CLI tool version. Use `bp version` or `bp -v` for the CLI version.
+- **Endpoint resolution is independent of `--force`** and matches normal invocation rules.
+- Unlisted services have no metadata host: you need a fixed host (`--endpoint`, or profile/`BYTEPLUS_ENDPOINT` when `endpoint-resolver` is **not** `standard`). `endpoint-resolver=standard` or `auto-addressing` alone is not enough.
+- Bundled services can omit `--version` in force mode, same as normal calls (e.g. `bp sts GetCallerIdentity --force`).
+- `--method` uses the same resolution order on normal and force paths: explicit `--method` overrides metadata; otherwise bundled action `Method`; otherwise defaults to `GET` (`--force` does not change this).
+- Public system flags use **double hyphens** `--` (including `--force` / `--version` / `--method`). HTTP headers/JSON body use reserved double-dash controls **`--header` / `--body`** (see [Usage](4-Usage.md#reserved-double-dash-controls)).
+- `--force` is **presence-only**: write `--force` by itself. Do **not** write `--force true` or `--force false`; the next token is treated as a positional argument (often mistaken for an action name).
+
+### Examples
+
+Normal metadata-validated call:
+
+```shell
+bp rds_mysql ModifyDBInstanceIPList \
+  --InstanceId mysql-xxxxxx \
+  --GroupName default \
+  --IPList '["10.20.30.40"]'
+```
+
+Force-call an unlisted service:
+
+```shell
+bp newservice DescribeNewResource \
+  --version 2024-01-01 \
+  --endpoint open.byteplusapi.com \
+  --SomeParam value \
+  --force
+```
+
+Known service, unknown action (`--version` optional; falls back to service metadata):
+
+```shell
+bp sts SomeNewAction \
+  --region ap-southeast-1 \
+  --Param1 value \
+  --force
+```
+
+Known service and action, skip validation only:
+
+```shell
+bp sts GetCallerIdentity --region ap-southeast-1 --force
+```
+
+Override API version and endpoint:
+
+```shell
+bp ecs DescribeInstances \
+  --version 2024-01-01 \
+  --endpoint ecs.ap-southeast-1.byteplusapi.com \
+  --region ap-southeast-1 \
+  --force
+```
+
+### Help for Unlisted Services
+
+`bp <unknown-service> -h` or a bare service name prints force-invocation usage instead of a generic error:
+
+```shell
+bp newservice -h
+bp newservice
+```
+
+### Common Errors
+
+
+Missing `--version` for an unlisted service:
+
+```text
+--version is required when using --force for service "newservice"
+```
+
+Missing **fixed** endpoint for an unlisted service (no effective host — e.g. no `--endpoint`, or only `endpoint-resolver=standard` / `auto-addressing`):
+
+```text
+endpoint is required for unlisted service "newservice": set --endpoint, or configure endpoint in the profile / BYTEPLUS_ENDPOINT (endpoint-resolver=standard alone is not enough)
+```
+
+Unlisted service without `--force`:
+
+```text
+unknown service "newservice": use --force with --version, and a fixed endpoint via --endpoint or profile/BYTEPLUS_ENDPOINT (endpoint-resolver=standard alone is not enough)
+```
+
+Wrong presence-only usage (`true` becomes a positional token / action):
+
+```text
+# incorrect — do not pass a value after --force
+bp newservice true --version 2024-01-01 --endpoint open.byteplusapi.com --force true
+
+# correct
+bp newservice DescribeNewResource --version 2024-01-01 --endpoint open.byteplusapi.com --force
 ```
 
 ## FAQ
 
-### Why is `---debug` unsupported?
+### How do I enable debug logging?
 
-Debug is not a CLI fixed flag. Use `BYTEPLUS_CLI_DEBUG`:
+Debug is not a CLI system flag. Use `BYTEPLUS_CLI_DEBUG`:
 
 ```shell
 BYTEPLUS_CLI_DEBUG=true bp sts GetCallerIdentity
 ```
 
-The supported fixed flags are:
+Public system flags:
 
 ```text
----profile, ---region, ---endpoint
+--profile, --region, --endpoint, --force, --version, --method
+```
+
+Reserved double-dash controls:
+
+```text
+--header, --body
 ```
 
 ### Why does the CLI say region is missing?
 
 API calls must resolve a region. Priority:
 
-1. `---region`
+1. `--region`
 2. `region` in profile
 3. `BYTEPLUS_REGION`
 
 Example:
 
 ```shell
-bp sts GetCallerIdentity ---region ap-southeast-1
+bp sts GetCallerIdentity --region ap-southeast-1
 ```
 
 Or:
@@ -218,7 +385,7 @@ If a current profile exists, the CLI uses the profile first. The environment-bas
 Override profile for one call:
 
 ```shell
-bp sts GetCallerIdentity ---profile prod
+bp sts GetCallerIdentity --profile prod
 ```
 
 Switch current:
@@ -263,4 +430,4 @@ Do not mix `--body` with other API parameters.
 
 ---
 
-[Usage](4-Usage.md) | Advanced Usage
+[← Usage](4-Usage.md) | Advanced Usage

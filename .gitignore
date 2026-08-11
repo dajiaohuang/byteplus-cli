@@ -6,5 +6,13 @@ doc
 byteplus-cli
 /bp
 /bp.exe
+/bp.exe.old
+*.exe.old
+*.bak
 /npm/checksum
 /node_modules
+package-lock.json
+
+# Local upgrade temps
+.bp-upgrade-*
+*.upgrade.lock

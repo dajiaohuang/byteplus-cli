@@ -35,6 +35,20 @@ npm install -g @byteplus/cli
 The npm package downloads the matching `bp` release asset during installation.
 Set `BYTEPLUS_CLI_DOWNLOAD_BASE_URL` when you need to use an internal mirror.
 
+
+
+### Upgrade `bp`
+
+```shell
+bp upgrade
+bp upgrade --yes
+bp upgrade --version 1.0.49
+```
+
+`bp upgrade` downloads the latest (or a pinned) release for standalone installs.
+npm installs are delegated to `npm install -g @byteplus/cli`; Homebrew installs
+to `brew upgrade byteplus-cli`. Set `BYTEPLUS_CLI_DOWNLOAD_BASE_URL` to use a mirror.
+
 ### Configuring `bp`
 
 Add `bp` to your system `PATH`
@@ -432,15 +446,15 @@ bp <service> <action> [--param1 val1 --param2 val2 ...]
 Fixed flags use three hyphens and only affect the current invocation:
 
 ```shell
-bp sts GetCallerIdentity ---profile dev ---region ap-southeast-1
-bp sts GetCallerIdentity ---region ap-southeast-1 ---endpoint sts.byteplusapi.com
+bp sts GetCallerIdentity --profile dev --region ap-southeast-1
+bp sts GetCallerIdentity --region ap-southeast-1 --endpoint sts.byteplusapi.com
 ```
 
 Supported fixed flags:
 
-- `---profile`: use a configured profile only for this invocation.
-- `---region`: override the region only for this invocation.
-- `---endpoint`: override the endpoint only for this invocation.
+- `--profile`: use a configured profile only for this invocation.
+- `--region`: override the region only for this invocation.
+- `--endpoint`: override the endpoint only for this invocation.
 
 You can enable CLI debug logs with an environment variable:
 
@@ -479,3 +493,13 @@ bp example_service ExampleAction --Items.1.Name first --Items.1.Count 3
 ## Security and privacy
 This project takes security seriously. 
 For vulnerability reporting and supported versions, see [SECURITY.md](SECURITY.md)
+
+
+### Force invocation for unlisted services
+
+```shell
+bp myservice MyAction --force --version 2024-01-01 --endpoint open.byteplusapi.com --region ap-southeast-1
+```
+
+`--force` skips service/action metadata validation. Unlisted services require
+API `--version` and a fixed endpoint (`--endpoint`, profile, or `BYTEPLUS_ENDPOINT`).

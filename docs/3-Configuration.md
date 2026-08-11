@@ -1,4 +1,4 @@
-[Authentication](2-Authentication.md) | Configuration | [Usage](4-Usage.md)
+[← Authentication](2-Authentication.md) | Configuration | [Usage →](4-Usage.md)
 
 ---
 
@@ -80,10 +80,10 @@ bp configure profile --profile prod
 
 `--profile` is required. If the profile does not exist, current is not changed and an error is returned.
 
-Switching current affects later service commands that do not specify `---profile`. For a single invocation, use:
+Switching current affects later service commands that do not specify `--profile`. For a single invocation, use:
 
 ```shell
-bp ecs DescribeInstances ---profile prod
+bp ecs DescribeInstances --profile prod
 ```
 
 ## Create or Update a Profile
@@ -104,7 +104,7 @@ Behavior:
 Update region:
 
 ```shell
-bp configure set --profile prod --region ap-southeast-1
+bp configure set --profile prod --region cn-shanghai
 ```
 
 Update endpoint:
@@ -166,7 +166,7 @@ bp ecs DescribeInstances
 
 ```shell
 bp configure profile --profile dev
-bp ecs DescribeInstances ---profile prod
+bp ecs DescribeInstances --profile prod
 ```
 
 This call uses `prod` only for this invocation and does not modify `current`.
@@ -174,10 +174,10 @@ This call uses `prod` only for this invocation and does not modify `current`.
 ### Override Region and Endpoint for One Call
 
 ```shell
-bp ecs DescribeInstances ---region ap-southeast-1
-bp sts GetCallerIdentity ---region ap-southeast-1 ---endpoint sts.byteplusapi.com
+bp ecs DescribeInstances --region cn-shanghai
+bp sts GetCallerIdentity --region ap-southeast-1 --endpoint sts.byteplusapi.com
 ```
 
 ---
 
-[Authentication](2-Authentication.md) | Configuration | [Usage](4-Usage.md)
+[← Authentication](2-Authentication.md) | Configuration | [Usage →](4-Usage.md)

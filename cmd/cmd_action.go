@@ -1,19 +1,3 @@
-/*
- * // Copyright (c) 2024 Bytedance Ltd. and/or its affiliates
- * //
- * // Licensed under the Apache License, Version 2.0 (the "License");
- * // you may not use this file except in compliance with the License.
- * // You may obtain a copy of the License at
- * //
- * //	http://www.apache.org/licenses/LICENSE-2.0
- * //
- * // Unless required by applicable law or agreed to in writing, software
- * // distributed under the License is distributed on an "AS IS" BASIS,
- * // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * // See the License for the specific language governing permissions and
- * // limitations under the License.
- */
-
 package cmd
 
 import (
@@ -24,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/byteplus-sdk/byteplus-cli/util"
 	"github.com/spf13/cobra"
+	"github.com/byteplus-sdk/byteplus-cli/util"
 )
 
 type paramValue struct {
@@ -35,53 +19,67 @@ type paramValue struct {
 
 func generateActionCmd(serviceName string, actionMeta map[string]*ByteplusMeta, apiMetas map[string]*ApiMeta) (actionCmds []*cobra.Command) {
 	for action, meta := range actionMeta {
+		action := action
 		var apiMeta *ApiMeta
 		if len(apiMetas) > 0 {
 			apiMeta = apiMetas[action]
 		}
+		params := exposedActionParams(meta, apiMeta)
+		publicParameters := exposedActionParameterNames(meta, apiMeta)
 		actionCmd := &cobra.Command{
 			Use:                action,
 			Short:              formatActionShort(serviceName, action),
 			Long:               formatActionLong(serviceName, action),
 			DisableFlagParsing: true,
 			RunE: func(cmd *cobra.Command, args []string) error {
-				if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
-					cmd.Usage()
-					return nil
+				if wantHelp, detail := parseActionHelpArgs(args); wantHelp {
+					setActionHelpDetail(cmd, detail)
+					// Clear after help so a later in-process Usage() does not stick on detail mode.
+					defer setActionHelpDetail(cmd, false)
+					return cmd.Usage()
+				}
+				// Bare --detail (no value) is almost always a help mistake, not a valid API call.
+				// Prefer a clear hint over the generic "--detail must set value." parser error.
+				if bareDetailWithoutValue(args) {
+					return errBareDetailWithoutHelp()
 				}
 
-				parser := NewParser(args)
-				if _, err := parser.ReadArgs(ctx); err != nil {
+				if err := parseInvocationFlags(args, publicParameters); err != nil {
 					return err
 				}
-
-				return doAction(ctx, cmd.Parent().Name(), cmd.Name())
+				return dispatchServiceAction(ctx, cmd.Parent().Name(), cmd.Name(), true)
 			},
 		}
 
 		// only used to enable auto-completion
 		// todo not support application/json
-		if meta.ApiInfo == nil || strings.ToLower(meta.ApiInfo.ContentType) != "application/json" {
-			params := meta.GetRequestParams(apiMeta)
+		if meta.ApiInfo == nil || !isJSONContentType(meta.ApiInfo.ContentType) {
 			paramValues := make([]paramValue, len(params))
 			for i := 0; i < len(params); i++ {
 				paramValues[i].param = params[i].key
 				actionCmd.Flags().StringVar(&paramValues[i].value, paramValues[i].param, "", "")
 			}
 
-			actionCmd.SetUsageTemplate(actionUsageTemplate(actionCmd.Long, formatParamsHelpUsage(params)))
+			setLazyActionUsage(actionCmd, func(detail bool) []string {
+				return buildActionHelpParamLines(serviceName, action, params, nil, detail)
+			})
 		} else {
 			var paramBody string
 			actionCmd.Flags().StringVar(&paramBody, "body", "", "")
 			var bodyStr []byte
-			params := []string{fmt.Sprintf(`body '%s'`, string(bodyStr))}
+			var reqParams []param
 			if apiMeta != nil && apiMeta.Request != nil {
 				bodyMap := apiMeta.Request.GetReqBody()
 				bodyStr, _ = json.MarshalIndent(bodyMap, "", "    ")
-				params = append([]string{fmt.Sprintf(`body '%s'`, string(bodyStr))}, formatParamsHelpUsage(apiMeta.GetRequestParams())...)
+				reqParams = apiMeta.GetRequestParams()
 			}
-			actionCmd.SetUsageTemplate(actionUsageTemplate(actionCmd.Long, params))
+			// Master dual-form layout (Parameter Form + JSON Form) with branch lazy/--detail.
+			bodyParam := fmt.Sprintf(`body '%s'`, string(bodyStr))
+			setLazyJSONActionUsage(actionCmd, bodyParam, func(detail bool) []string {
+				return buildActionHelpParamLines(serviceName, action, reqParams, nil, detail)
+			})
 		}
+		registerActionSystemFlags(actionCmd, publicParameters)
 
 		actionCmd.Flags().BoolP("help", "h", false, "")
 
@@ -91,12 +89,123 @@ func generateActionCmd(serviceName string, actionMeta map[string]*ByteplusMeta, 
 	return
 }
 
-func doAction(ctx *Context, serviceName, action string) (err error) {
+func exposedActionParams(meta *ByteplusMeta, apiMeta *ApiMeta) []param {
+	if meta == nil {
+		return nil
+	}
+	if meta.ApiInfo != nil && isJSONContentType(meta.ApiInfo.ContentType) {
+		if apiMeta == nil {
+			return nil
+		}
+		return apiMeta.GetRequestParams()
+	}
+	return meta.GetRequestParams(apiMeta)
+}
+
+func exposedActionParameterNames(meta *ByteplusMeta, apiMeta *ApiMeta) map[string]struct{} {
+	names := make(map[string]struct{})
+	for _, p := range exposedActionParams(meta, apiMeta) {
+		names[p.key] = struct{}{}
+	}
+	if meta != nil && meta.ApiInfo != nil && isJSONContentType(meta.ApiInfo.ContentType) {
+		names["body"] = struct{}{}
+	}
+	return names
+}
+
+func publicActionParameterNames(serviceName, action string) map[string]struct{} {
+	serviceName = strings.ReplaceAll(serviceName, "_", "")
+	actions := rootSupport.SupportAction[serviceName]
+	if actions == nil || actions[action] == nil {
+		return nil
+	}
+	return exposedActionParameterNames(actions[action], rootSupport.GetApiMeta(serviceName, action))
+}
+
+func registerActionSystemFlags(actionCmd *cobra.Command, actionParameters map[string]struct{}) {
+	// Completion only; DisableFlagParsing means values are handled by Parser.
+	// Skip names already registered or exact-name API parameters so business
+	// completions win over system flags when they conflict.
+	for _, name := range publicSystemFlagNames() {
+		if actionCmd.Flags().Lookup(name) != nil {
+			continue
+		}
+		if _, conflict := actionParameters[name]; conflict {
+			continue
+		}
+		if isPresenceOnlyFixedFlag(name) {
+			actionCmd.Flags().Bool(name, false, "")
+			continue
+		}
+		actionCmd.Flags().String(name, "", "")
+	}
+}
+
+func doAction(ctx *Context, serviceName, action string) error {
 	if !rootSupport.IsValidAction(serviceName, action) {
-		err = fmt.Errorf("%s.%s is unsupport action", serviceName, action)
-		return
+		return fmt.Errorf("%s.%s is unsupport action", serviceName, action)
 	}
 
+	apiMeta := rootSupport.GetApiMeta(serviceName, action)
+	method, contentType, headers, err := resolveCallStyle(ctx, serviceName, action)
+	if err != nil {
+		return err
+	}
+	version := apiVersionForCall(ctx, serviceName)
+	jsonBody := isJSONContentType(contentType)
+
+	return executeInvocation(ctx, invocationParams{
+		serviceName: serviceName,
+		action:      action,
+		version:     version,
+		method:      method,
+		contentType: contentType,
+		headers:     headers,
+	}, func() (invocationInput, error) {
+		input, fromBody, err := buildActionInput(ctx.dynamicFlags.flags, apiMeta, jsonBody)
+		if err != nil {
+			return invocationInput{}, err
+		}
+		return invocationInput{value: input, jsonBody: jsonBody, fromBody: fromBody}, nil
+	})
+}
+
+type invocationParams struct {
+	serviceName string
+	action      string
+	version     string
+	method      string
+	contentType string
+	headers     []requestHeader
+}
+
+type invocationInput struct {
+	value    interface{}
+	jsonBody bool
+	fromBody bool
+}
+
+// sdkCallInput normalizes invocationInput to the shape CallSdk expects:
+//   - fromBody: already pointer-shaped (*map or *[] from parseJSONBody)
+//   - otherwise: map value from expandFlatToJSON / flat non-JSON path → *map
+func sdkCallInput(built invocationInput) (interface{}, error) {
+	if built.fromBody {
+		return built.value, nil
+	}
+	m, ok := built.value.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("internal error: action input must be a map, got %T", built.value)
+	}
+	return &m, nil
+}
+
+// executeInvocationHook 仅供测试注入，避免单测触发真实 SDK 调用。
+var executeInvocationHook func(ctx *Context, p invocationParams, buildInput func() (invocationInput, error)) error
+
+func executeInvocation(ctx *Context, p invocationParams, buildInput func() (invocationInput, error)) (err error) {
+	if executeInvocationHook != nil {
+		return executeInvocationHook(ctx, p, buildInput)
+	}
 	debugLog, closeDebugLog, err := prepareDebugLogger(ctx)
 	if err != nil {
 		return err
@@ -107,68 +216,43 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 		}
 	}()
 
-	var (
-		sdk *SdkClient
-		out *map[string]interface{}
-	)
+	debugLogActionStart(debugLog, p.serviceName, p.action, p.version, p.method, p.contentType)
 
-	method := "GET"
-	contentType := ""
-	apiInfo := rootSupport.GetApiInfo(serviceName, action)
-	apiMeta := rootSupport.GetApiMeta(serviceName, action)
-
-	if apiInfo != nil && apiInfo.Method != "" {
-		method = apiInfo.Method
-	}
-
-	if apiInfo != nil && apiInfo.ContentType != "" {
-		contentType = apiInfo.ContentType
-	}
-
-	version := rootSupport.GetVersion(serviceName)
-	debugLogActionStart(debugLog, serviceName, action, version, method, contentType)
-
-	sdk, err = NewSimpleClient(ctx)
+	sdk, err := NewSimpleClient(ctx)
 	if err != nil {
 		debugLogError(debugLog, "client_init_error", err)
-		return
+		return err
 	}
 
-	jsonBody := strings.ToLower(contentType) == "application/json"
-	input, inputFromBody, err := buildActionInput(ctx.dynamicFlags.flags, apiMeta, jsonBody)
+	built, err := buildInput()
 	if err != nil {
 		debugLogError(debugLog, "input_build_error", err)
-		return
+		return err
 	}
-	debugLogInput(debugLog, ctx.dynamicFlags.flags, input, inputFromBody)
+	debugLogInput(debugLog, ctx.dynamicFlags.flags, built.value, built.fromBody)
 
-	if svc, ok := GetServiceMapping(serviceName); ok {
-		serviceName = svc
+	sdkServiceName := p.serviceName
+	if svc, ok := GetServiceMapping(p.serviceName); ok {
+		sdkServiceName = svc
+	}
+
+	info := SdkClientInfo{
+		ServiceName: sdkServiceName,
+		Action:      p.action,
+		Version:     p.version,
+		Method:      p.method,
+		ContentType: p.contentType,
+		Headers:     p.headers,
+	}
+
+	input, err := sdkCallInput(built)
+	if err != nil {
+		debugLogError(debugLog, "input_type_error", err)
+		return err
 	}
 
 	start := time.Now()
-	if strings.ToLower(contentType) != "application/json" {
-		inputMap, _ := input.(map[string]interface{})
-		out, err = sdk.CallSdk(SdkClientInfo{
-			ServiceName: serviceName,
-			Action:      action,
-			Version:     version,
-			Method:      method,
-			ContentType: contentType,
-		}, &inputMap)
-	} else {
-		if !inputFromBody {
-			inputMap, _ := input.(map[string]interface{})
-			input = &inputMap
-		}
-		out, err = sdk.CallSdk(SdkClientInfo{
-			ServiceName: serviceName,
-			Action:      action,
-			Version:     version,
-			Method:      method,
-			ContentType: contentType,
-		}, input)
-	}
+	out, err := sdk.CallSdk(info, input)
 	if err != nil {
 		debugLogSdkEnd(debugLog, start, err)
 		return formatActionError(err)
@@ -180,7 +264,23 @@ func doAction(ctx *Context, serviceName, action string) (err error) {
 	} else {
 		util.ShowJson(*out, true)
 	}
-	return
+	return nil
+}
+
+// resolveActionHTTPMethod 决定 HTTP 方法（正常路径与 force 共用）：元数据优先，显式 ---method 可覆盖。
+func resolveActionHTTPMethod(ctx *Context, apiInfo *ApiInfo) (string, error) {
+	method := "GET"
+	if apiInfo != nil && apiInfo.Method != "" {
+		method = apiInfo.Method
+	}
+	override, err := explicitHTTPMethod(ctx)
+	if err != nil {
+		return "", err
+	}
+	if override != "" {
+		method = override
+	}
+	return method, nil
 }
 
 func prepareDebugLogger(ctx *Context) (*DebugLogger, func() error, error) {
@@ -220,7 +320,6 @@ func debugLogInput(logger *DebugLogger, flags []*Flag, input interface{}, inputF
 	if !logger.Enabled() {
 		return
 	}
-
 	names := make([]string, 0, len(flags))
 	for _, f := range flags {
 		if f != nil {
@@ -236,7 +335,6 @@ func debugLogSdkEnd(logger *DebugLogger, start time.Time, callErr error) {
 	if !logger.Enabled() {
 		return
 	}
-
 	duration := time.Since(start)
 	if callErr != nil {
 		logger.Printf("sdk_call_error duration_ms=%d error=%s", duration/time.Millisecond, callErr.Error())
@@ -256,10 +354,7 @@ func formatActionError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if strings.Contains(err.Error(), "NoCredentialProviders") ||
-		strings.Contains(err.Error(), "no valid providers in chain") ||
-		strings.Contains(err.Error(), "BYTEPLUS_ACCESS_KEY not set") ||
-		strings.Contains(err.Error(), "BYTEPLUS_SECRET_KEY not set") {
+	if strings.Contains(err.Error(), "NoCredentialProviders") || strings.Contains(err.Error(), "no valid providers in chain") {
 		return fmt.Errorf("credentials not configured, please run 'bp login' or 'bp configure set', or set BYTEPLUS_ACCESS_KEY and BYTEPLUS_SECRET_KEY environment variables")
 	}
 	return err
@@ -326,33 +421,4 @@ func normalizeMetaTypeKey(name string) string {
 	}
 
 	return strings.Join(parts, ".")
-}
-
-func actionUsageTemplate(description string, params []string) string {
-	sort.Strings(params)
-
-	for i := 0; i < len(params); i++ {
-		params[i] = "  --" + params[i]
-	}
-
-	description = strings.TrimSpace(description)
-	if description != "" {
-		description += "\n\n"
-	}
-
-	return fmt.Sprintf(`%sUsage:{{if .Runnable}}
-  {{.CommandPath}} [params]{{end}}{{if .HasExample}}
-
-Examples:
-{{.Example}}{{end}}
-
-Available Parameters:
-%s
-
-Fixed Flags:
-  ---profile string    Use a configured profile only for this invocation.
-  ---region string     Override the region only for this invocation.
-  ---endpoint string   Override the endpoint only for this invocation.
-
-`, description, strings.Join(params, "\n"))
 }
