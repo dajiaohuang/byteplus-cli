@@ -796,24 +796,19 @@ func TestTryExecuteGenericInvokeDescriptionDashHIsNotHelp(t *testing.T) {
 	}
 }
 
-// TestForcePathAcceptsArgsAfterLanguageStrip 锁住 rebase 后的交界约定：
-// ---lang 必须在 tryExecuteGenericInvoke 之前由 resolveLanguage 剥离；
-// runMain 应传 processLanguageResolution.args，而不是 os.Args[1:]。
+// TestForcePathAcceptsArgsAfterSystemFlagPreprocess locks the English-only
+// preprocessing boundary: public system flags must still reach the generic
+// invocation path after root argument preprocessing.
 func TestForcePathAcceptsArgsAfterSystemFlagPreprocess(t *testing.T) {
-	// ---lang is not a system flag in English-only CLI; parser rejects it.
-	// Double-dash system flags after unknown service still reach force path.
+	stubExecuteInvocation(t, errStubInvocation)
 	raw := []string{
 		"unknownsvc", "SomeAction",
 		"--force",
 		"--version", "2024-01-01",
 		"--endpoint", "open.byteplusapi.com",
 	}
-	if err := tryExecuteGenericInvoke(raw); err != nil && !errors.Is(err, errNotGenericInvoke) {
-		// May fail later on credentials/network; must not fail as "not generic invoke"
-		// or as unsupported fixed flag.
-		if strings.Contains(err.Error(), "not supported") || strings.Contains(err.Error(), "not a generic") {
-			t.Fatalf("force path should reach invocation, got: %v", err)
-		}
+	if err := tryExecuteGenericInvoke(raw); !errors.Is(err, errStubInvocation) {
+		t.Fatalf("force path should reach executeInvocation, got: %v", err)
 	}
 }
 

@@ -3,7 +3,6 @@ package cmd
 import (
 	"bytes"
 	"reflect"
-	"sort"
 	"strings"
 	"testing"
 
@@ -92,7 +91,7 @@ func TestParserUsesExactActionParameterConflict(t *testing.T) {
 	for name, want := range map[string]string{
 		"profile": "business-profile", "region": "business-region",
 		"endpoint": "business-endpoint",
-		"force": "business-force", "version": "business-version", "method": "business-method",
+		"force":    "business-force", "version": "business-version", "method": "business-method",
 		"Region": "business-cased-region",
 	} {
 		flag := c.dynamicFlags.GetByName(name)
@@ -188,7 +187,6 @@ func TestResolveSystemFlagsDoesNotTreatNextFlagAsValue(t *testing.T) {
 	}
 }
 
-
 func TestLegacyAndNewSystemFlagDuplicatesAreRejected(t *testing.T) {
 	// Leading preprocessable flags before a non-API command: duplicate --region errors.
 	_, err := resolveSystemFlags([]string{
@@ -236,30 +234,56 @@ func TestNestedJSONFieldDoesNotConflictWithSystemFlag(t *testing.T) {
 }
 
 func TestSystemFlagsAreExposedToCompletionWithoutLegacyAliases(t *testing.T) {
-	cmd := &cobra.Command{Use: "demo"}
-	params := map[string]struct{}{"force": {}}
-	registerActionSystemFlags(cmd, params)
-
-	for _, name := range []string{"--profile", "--region", "--endpoint", "--force", "--version", "--method"} {
-		// force conflicts so may be skipped on double-dash registration
-		_ = name
+	root := &cobra.Command{Use: "bp"}
+	action := &cobra.Command{
+		Use: "demo",
+		Run: func(cmd *cobra.Command, args []string) {},
 	}
-	for _, alias := range []string{"---profile", "---region", "---endpoint", "---force", "---version", "---method"} {
-		if cmd.Flags().Lookup(strings.TrimPrefix(alias, "-")) != nil && strings.HasPrefix(alias, "---") {
-			// cobra registers bare names without dashes; legacy triple-dash is not registered.
+	registerActionSystemFlags(action, nil)
+	root.AddCommand(action)
+
+	for _, name := range publicSystemFlagNames() {
+		if action.Flags().Lookup(name) == nil {
+			t.Fatalf("action completion missing public system flag --%s", name)
 		}
 	}
 
-	// System registration must skip exact API conflict force.
-	if cmd.Flags().Lookup("force") != nil {
-		// Looking at registerActionSystemFlags implementation...
+	var completion bytes.Buffer
+	if err := root.GenBashCompletion(&completion); err != nil {
+		t.Fatalf("GenBashCompletion returned error: %v", err)
 	}
+	output := completion.String()
+	for _, name := range publicSystemFlagNames() {
+		if !strings.Contains(output, "--"+name) {
+			t.Fatalf("completion missing public system flag --%s", name)
+		}
+	}
+	for _, name := range publicSystemFlagNames() {
+		alias := "---" + name
+		if strings.Contains(output, alias) {
+			t.Fatalf("completion exposes legacy system flag alias %s", alias)
+		}
+	}
+}
 
-	// Capture help output should document double-dash only.
-	var b bytes.Buffer
-	cmd.SetOut(&b)
-	cmd.SetErr(&b)
-	_ = cmd.Usage()
+func TestRegisterActionSystemFlagsSkipsExactAPIConflicts(t *testing.T) {
+	action := &cobra.Command{Use: "demo"}
+	conflicts := map[string]struct{}{"force": {}, "version": {}}
+	registerActionSystemFlags(action, conflicts)
+
+	for name := range conflicts {
+		if action.Flags().Lookup(name) != nil {
+			t.Fatalf("system flag --%s must not override an exact API parameter conflict", name)
+		}
+	}
+	for _, name := range publicSystemFlagNames() {
+		if _, conflict := conflicts[name]; conflict {
+			continue
+		}
+		if action.Flags().Lookup(name) == nil {
+			t.Fatalf("non-conflicting system flag --%s was not registered", name)
+		}
+	}
 }
 
 func TestSystemFlagHelpMatchesDefs(t *testing.T) {
@@ -287,11 +311,5 @@ func TestPublicSystemFlagNamesOrder(t *testing.T) {
 	want := []string{"profile", "region", "endpoint", "version", "method", "force"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("publicSystemFlagNames=%v want %v", got, want)
-	}
-	// stable sort sanity
-	sorted := append([]string{}, got...)
-	sort.Strings(sorted)
-	if len(sorted) != len(want) {
-		t.Fatal("unexpected length")
 	}
 }
