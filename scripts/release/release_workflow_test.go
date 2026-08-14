@@ -80,8 +80,7 @@ func TestReleasePublishesStablePointersAfterNPM(t *testing.T) {
 	for _, want := range []string{
 		`package_spec="@byteplus/cli@${VERSION}"`,
 		`npm_version_or_empty "$package_spec"`,
-		`npm publish --access public --tag "$staging_tag"`,
-		`trap 'status=$?; cleanup_staging_tag || true; exit "$status"' EXIT`,
+		`npm publish --access public --tag staging`,
 		`return 1`,
 	} {
 		if !strings.Contains(npmPublishStep, want) {
@@ -91,6 +90,12 @@ func TestReleasePublishesStablePointersAfterNPM(t *testing.T) {
 	if strings.Contains(npmPublishStep, "npm dist-tag add") {
 		t.Fatal("immutable npm publication must not move latest/next")
 	}
+	if strings.Contains(npmPublishStep, "npm dist-tag rm") {
+		t.Fatal("publication must not delete dist-tags because automation tokens are denied DELETE")
+	}
+	if strings.Contains(npmPublishStep, "GITHUB_RUN_ID") {
+		t.Fatal("the staging tag must be a fixed name so each release overwrites it instead of leaking a per-run tag")
+	}
 
 	promoteStep := workflow[promoteStart:stablePublishStart]
 	for _, want := range []string{
@@ -99,6 +104,7 @@ func TestReleasePublishesStablePointersAfterNPM(t *testing.T) {
 		`--select-channel "$npm_tag"`,
 		`package_spec="@byteplus/cli@${promote_version}"`,
 		`published_version="$(npm_version_or_empty "$package_spec")"`,
+		`--current "release:${npm_tag}=${VERSION}"`,
 		`current_npm_version="$(npm_version_or_empty "@byteplus/cli@${npm_tag}")"`,
 		`release_version_guard.py`,
 		`echo "advance_channel=${advance_channel}" >> "$GITHUB_OUTPUT"`,

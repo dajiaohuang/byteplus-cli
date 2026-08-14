@@ -180,23 +180,13 @@ jobs:
           package_spec="@byteplus/cli@${VERSION}"
           published_version="$(npm_version_or_empty "$package_spec")"
 
-          staging_tag=""
-          cleanup_staging_tag() {
-            if [[ -n "$staging_tag" ]]; then
-              npm dist-tag rm "@byteplus/cli" "$staging_tag"
-            fi
-          }
-          trap 'status=$?; cleanup_staging_tag || true; exit "$status"' EXIT
-
-          # Publish under a transient staging tag only. latest/next are moved in
-          # the promote job after the monotonic channel guard succeeds.
+          # npm publish always moves some dist-tag, so stage on a fixed channel that
+          # each release overwrites in place: automation tokens are allowed to add
+          # dist-tags but not to DELETE them. latest/next are moved in the promote
+          # job after the monotonic channel guard succeeds.
           if [[ "$published_version" != "$VERSION" ]]; then
-            staging_tag="release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-            npm publish --access public --tag "$staging_tag"
+            npm publish --access public --tag staging
           fi
-          cleanup_staging_tag
-          staging_tag=""
-          trap - EXIT
 
   promote:
     needs: release
@@ -269,6 +259,15 @@ jobs:
           published_version="$(npm_version_or_empty "$package_spec")"
           if [[ "$published_version" != "$promote_version" ]]; then
             echo "${package_spec} must exist before channel promotion" >&2
+            exit 1
+          fi
+
+          # A registry listing that has not caught up with this run would otherwise
+          # promote an older version and report success.
+          if [[ "$(python3 scripts/release_version_guard.py \
+            --candidate "$promote_version" \
+            --current "release:${npm_tag}=${VERSION}")" != "true" ]]; then
+            echo "published versions for ${npm_tag} are behind ${VERSION}" >&2
             exit 1
           fi
 
