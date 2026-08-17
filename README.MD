@@ -292,20 +292,35 @@ bp login -p dev -r ap-southeast-1
 
 # Cross-device login for headless/remote servers or containers
 bp login -p dev -r ap-southeast-1 --remote
+
+# Device code login; the CLI attempts to open a browser and also prints the URL and user code
+bp login -p dev -r ap-southeast-1 --use-device-code
+
+# Device code login without automatically opening a browser
+bp login -p dev -r ap-southeast-1 --use-device-code --no-browser
 ```
 
-This command performs OAuth 2.0 + PKCE login through the Byteplus console and caches temporary STS credentials locally. Subsequent CLI commands can reuse the profile's temporary credentials.
+This command authenticates with Byteplus Console and caches temporary STS credentials locally. Subsequent CLI commands can reuse the profile's temporary credentials.
+
+Supports three modes:
+- Local (default): Authorization Code + PKCE with a local callback
+- Remote (`--remote`): Authorization Code + PKCE with manual code input
+- Device code (`--use-device-code`): Device Authorization Grant with token polling
 
 Parameters:
 - `--profile, -p`: Profile name, default `default`
 - `--region, -r`: Region; if not specified, you will be prompted; press Enter to use `ap-southeast-1`
-- `--remote`: Cross-device login; follow the URL shown in the terminal to complete login in a browser, then paste the authorization code back into the terminal
+- `--remote`: Cross-device authorization code login; follow the URL shown in the terminal to complete login in a browser, then paste the authorization code back into the terminal
+- `--use-device-code`: Use the OAuth 2.0 Device Authorization Grant; the CLI polls for a token until authorization completes
+- `--no-browser`: Do not automatically open a browser during device code login; requires `--use-device-code`
 - `--endpoint-url`: Login service URL, default `https://signin.byteplus.com`; usually does not need to be changed
 
 Notes:
 - After successful login, the profile will be set to `console-login` mode and record a `login-session`
 - After logging in with a non-`default` profile, CLI commands will not automatically switch profiles; run `bp configure profile --profile dev` first
-- Use `--remote` when the local browser cannot redirect back to the CLI machine
+- `--remote` and `--use-device-code` cannot be combined
+- `--no-browser` cannot be used without `--use-device-code`
+- Use `--remote` or `--use-device-code --no-browser` when the local browser cannot redirect back to the CLI machine
 
 Full usage example:
 

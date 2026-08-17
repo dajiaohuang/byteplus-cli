@@ -20,13 +20,22 @@ import (
 const scopeAllAll = "Console:All:All"
 const loginCacheDirectoryEnv = "BYTEPLUS_LOGIN_CACHE_DIRECTORY"
 const defaultConsoleLoginRegion = "ap-southeast-1"
+const consoleDeviceInfo = "Byteplus CLI"
+
+var (
+	consoleLoginOpenBrowser               = util.OpenBrowser
+	consoleDeviceAuthorizationSleep       = sleepWithContext
+	consoleDeviceAuthorizationCurrentTime = time.Now
+)
 
 // ConsoleLogin holds runtime state for the byteplus login flow.
 type ConsoleLogin struct {
-	Profile     string // profile name, default "default"
-	Region      string
-	Remote      bool   // true = cross-device mode
-	EndpointURL string // default "https://signin.byteplus.com"
+	Profile       string // profile name, default "default"
+	Region        string
+	Remote        bool   // true = cross-device authorization code mode
+	UseDeviceCode bool   // true = OAuth 2.0 Device Authorization Grant
+	NoBrowser     bool   // true = do not automatically open a browser in device code mode
+	EndpointURL   string // default "https://signin.byteplus.com"
 }
 
 // LoginTokenCache represents the cached login token data persisted to disk.
@@ -48,6 +57,10 @@ type LoginTokenCache struct {
 // ---------------------------------------------------------------------------
 
 func (cl *ConsoleLogin) Login() error {
+	if err := cl.validateOptions(); err != nil {
+		return err
+	}
+
 	// Apply defaults.
 	if cl.Profile == "" {
 		cl.Profile = "default"
@@ -74,56 +87,15 @@ func (cl *ConsoleLogin) Login() error {
 	}
 	cl.Region = resolvedRegion
 
-	// 1. Determine client_id based on mode.
-	clientID := ConsoleClientIDSameDevice
-	if cl.Remote {
-		clientID = ConsoleClientIDCrossDevice
-	}
-
-	// 2. Generate PKCE parameters.
-	codeVerifier, err := generateCodeVerifier()
-	if err != nil {
-		return fmt.Errorf("generating code verifier: %w", err)
-	}
-	codeChallenge := generateCodeChallenge(codeVerifier)
-
-	// 3. Generate state (UUID v4).
-	state, err := generateState()
-	if err != nil {
-		return fmt.Errorf("generating state: %w", err)
-	}
-
-	// 4. Create the OAuth client.
 	oauthClient := NewConsoleOAuthClient(&ConsoleOAuthClientConfig{
 		EndpointURL: cl.EndpointURL,
 	})
 
-	// 5. Obtain the authorization code and redirect_uri used.
-	var authCode string
-	var redirectURI string
-	if cl.Remote {
-		authCode, redirectURI, err = cl.remoteAuthorize(oauthClient, clientID, codeChallenge, state)
-	} else {
-		authCode, redirectURI, err = cl.localAuthorize(oauthClient, clientID, codeChallenge, state)
-	}
+	tokenResp, clientID, err := cl.fetchInitialToken(context.Background(), oauthClient)
 	if err != nil {
 		return err
 	}
 
-	// 6. Exchange authorization code for token.
-	tokenResp, err := oauthClient.ExchangeToken(context.Background(), &ConsoleTokenRequest{
-		GrantType:    "authorization_code",
-		Code:         authCode,
-		RedirectURI:  redirectURI,
-		ClientID:     clientID,
-		Scope:        scopeAllAll,
-		CodeVerifier: codeVerifier,
-	})
-	if err != nil {
-		return fmt.Errorf("exchanging authorization code for token: %w", err)
-	}
-
-	// 7. Validate STS credentials from access_token.
 	if _, err := ParseSTSCredentials(tokenResp.AccessToken); err != nil {
 		return fmt.Errorf("parsing STS credentials: %w", err)
 	}
@@ -195,6 +167,145 @@ func (cl *ConsoleLogin) Login() error {
 	expiresAt := issuedAt.Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
 	fmt.Printf("STS credentials expire at: %s\n", expiresAt.Local().Format("2006-01-02 15:04:05"))
 	return nil
+}
+
+func (cl *ConsoleLogin) validateOptions() error {
+	if cl.Remote && cl.UseDeviceCode {
+		return fmt.Errorf("--remote and --use-device-code cannot be used together")
+	}
+	if cl.NoBrowser && !cl.UseDeviceCode {
+		return fmt.Errorf("--no-browser requires --use-device-code")
+	}
+	return nil
+}
+
+func (cl *ConsoleLogin) fetchInitialToken(
+	ctx context.Context,
+	oauthClient *ConsoleOAuthClient,
+) (*ConsoleTokenResponse, string, error) {
+	if cl.UseDeviceCode {
+		tokenResp, err := cl.deviceCodeAuthorize(ctx, oauthClient)
+		return tokenResp, ConsoleClientIDCrossDevice, err
+	}
+
+	clientID := ConsoleClientIDSameDevice
+	if cl.Remote {
+		clientID = ConsoleClientIDCrossDevice
+	}
+
+	codeVerifier, err := generateCodeVerifier()
+	if err != nil {
+		return nil, "", fmt.Errorf("generating code verifier: %w", err)
+	}
+	codeChallenge := generateCodeChallenge(codeVerifier)
+
+	state, err := generateState()
+	if err != nil {
+		return nil, "", fmt.Errorf("generating state: %w", err)
+	}
+
+	var authCode string
+	var redirectURI string
+	if cl.Remote {
+		authCode, redirectURI, err = cl.remoteAuthorize(oauthClient, clientID, codeChallenge, state)
+	} else {
+		authCode, redirectURI, err = cl.localAuthorize(oauthClient, clientID, codeChallenge, state)
+	}
+	if err != nil {
+		return nil, "", err
+	}
+
+	tokenResp, err := oauthClient.ExchangeToken(ctx, &ConsoleTokenRequest{
+		GrantType:    "authorization_code",
+		Code:         authCode,
+		RedirectURI:  redirectURI,
+		ClientID:     clientID,
+		Scope:        scopeAllAll,
+		CodeVerifier: codeVerifier,
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("exchanging authorization code for token: %w", err)
+	}
+	return tokenResp, clientID, nil
+}
+
+func (cl *ConsoleLogin) deviceCodeAuthorize(
+	ctx context.Context,
+	oauthClient *ConsoleOAuthClient,
+) (*ConsoleTokenResponse, error) {
+	authResp, err := oauthClient.StartDeviceAuthorization(ctx, &ConsoleDeviceAuthorizationRequest{
+		ClientID:   ConsoleClientIDCrossDevice,
+		Scope:      scopeAllAll,
+		DeviceInfo: consoleDeviceInfo,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("starting device authorization: %w", err)
+	}
+
+	browserURL := strings.TrimSpace(authResp.VerificationURIComplete)
+	if browserURL == "" {
+		browserURL = authResp.VerificationURI
+	}
+
+	if cl.NoBrowser {
+		fmt.Println("Browser will not be automatically opened.")
+	} else {
+		fmt.Println("Attempting to open your default browser.")
+	}
+	fmt.Println("Open the following URL to authorize this device:")
+	fmt.Println()
+	fmt.Println(authResp.VerificationURI)
+	fmt.Println()
+	fmt.Printf("Then enter the code:\n\n%s\n", authResp.UserCode)
+	if authResp.VerificationURIComplete != "" && authResp.VerificationURIComplete != authResp.VerificationURI {
+		fmt.Println()
+		fmt.Println("Alternatively, open the following URL to prefill the code:")
+		fmt.Println()
+		fmt.Println(authResp.VerificationURIComplete)
+	}
+	fmt.Printf("This device code expires in %d seconds.\n", authResp.ExpiresIn)
+
+	if !cl.NoBrowser {
+		if err := consoleLoginOpenBrowser(browserURL); err != nil {
+			fmt.Printf("Failed to open the browser automatically: %v\n", err)
+		}
+	}
+
+	poll := newDeviceCodePollControl(authResp.Interval)
+	deadline := consoleDeviceAuthorizationCurrentTime().Add(time.Duration(authResp.ExpiresIn) * time.Second)
+	for {
+		now := consoleDeviceAuthorizationCurrentTime()
+		if !now.Before(deadline) {
+			return nil, fmt.Errorf("device authorization timed out; please run 'bp login --use-device-code' again")
+		}
+
+		wait := poll.interval
+		if remaining := deadline.Sub(now); wait > remaining {
+			wait = remaining
+		}
+		if err := consoleDeviceAuthorizationSleep(ctx, wait); err != nil {
+			return nil, fmt.Errorf("waiting for device authorization: %w", err)
+		}
+		if !consoleDeviceAuthorizationCurrentTime().Before(deadline) {
+			return nil, fmt.Errorf("device authorization timed out; please run 'bp login --use-device-code' again")
+		}
+
+		// Poll with a single HTTP attempt: the loop itself owns the RFC 8628
+		// interval / slow_down backpressure, so the transport-level retry must
+		// not fire extra sub-second requests here.
+		tokenResp, err := oauthClient.exchangeToken(ctx, &ConsoleTokenRequest{
+			GrantType:  deviceCodeGrantType,
+			DeviceCode: authResp.DeviceCode,
+			ClientID:   ConsoleClientIDCrossDevice,
+			Scope:      scopeAllAll,
+		}, 1)
+		if err == nil {
+			return tokenResp, nil
+		}
+		if pollErr := poll.handleTokenError(err); pollErr != nil {
+			return nil, pollErr
+		}
+	}
 }
 
 func confirmLoginSessionReplacement(input io.Reader, output io.Writer, profileName, currentLoginSession, newLoginSession string) (bool, error) {

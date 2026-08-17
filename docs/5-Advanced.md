@@ -415,7 +415,10 @@ Console Login:
 
 ```shell
 bp login --profile dev --region ap-southeast-1 --remote
+bp login --profile dev --region ap-southeast-1 --use-device-code --no-browser
 ```
+
+`--remote` uses the cross-device authorization code flow. `--use-device-code --no-browser` uses Device Authorization Grant and lets the CLI poll for completion.
 
 ### Why does `--body` return `json format error`?
 
