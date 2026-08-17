@@ -8,7 +8,7 @@ Basic command format:
 
 ```shell
 bp <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
-                      [--profile name] [--region region] [--endpoint endpoint] 
+                      [--profile name] [--region region] [--endpoint endpoint]
                       [--version api-version] [--method GET|POST] [--force]
 ```
 
@@ -143,8 +143,6 @@ bp sts GetCallerIdentity --region ap-southeast-1 --endpoint sts.byteplusapi.com
 ```
 
 If `--profile` references a profile that does not exist, the command returns an error.
-
-The only current exact-name conflict is the 
 
 ## JSON Parameters
 

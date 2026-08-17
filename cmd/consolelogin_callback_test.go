@@ -192,7 +192,7 @@ func TestHandleCallbackFallbackEscapesErrorDetails(t *testing.T) {
 	}
 
 	// Force renderCallbackPage to fail so that fallback HTML is used.
-	savedOnce := callbackTemplateOnce
+	// Reset Once instead of copying it; go vet copylocks forbids Once assignment.
 	savedTemplate := callbackTemplate
 	savedErr := callbackTemplateErr
 	callbackTemplateOnce = sync.Once{}
@@ -200,7 +200,7 @@ func TestHandleCallbackFallbackEscapesErrorDetails(t *testing.T) {
 	callbackTemplate = nil
 	callbackTemplateErr = errors.New(`render failure </script><script>alert("xss")</script>`)
 	defer func() {
-		callbackTemplateOnce = savedOnce
+		callbackTemplateOnce = sync.Once{}
 		callbackTemplate = savedTemplate
 		callbackTemplateErr = savedErr
 	}()

@@ -125,7 +125,6 @@ func TestJSONActionUsageSeparatesParameterForms(t *testing.T) {
 				"        \"Filter\": {}\n" +
 				"    }'",
 		},
-		
 	}
 
 	for _, tt := range tests {
@@ -376,11 +375,11 @@ func TestPublicDocsOnlyAdvertiseDoubleDashSystemFlags(t *testing.T) {
 	repoRoot := filepath.Dir(filepath.Dir(currentFile))
 	publicDocs := []string{
 		"README.MD",
-						"docs/1-GettingStarted.md",
-				"docs/2-Authentication.md",
-				"docs/3-Configuration.md",
-				"docs/4-Usage.md",
-				"docs/5-Advanced.md",
+		"docs/1-GettingStarted.md",
+		"docs/2-Authentication.md",
+		"docs/3-Configuration.md",
+		"docs/4-Usage.md",
+		"docs/5-Advanced.md",
 	}
 	forbidden := []string{
 		"---profile",
