@@ -83,10 +83,10 @@ jobs:
           : "${AWS_ACCESS_KEY_ID:?missing secret TOS_ACCESS_KEY_ID}"
           : "${AWS_SECRET_ACCESS_KEY:?missing secret TOS_SECRET_ACCESS_KEY}"
 
-          export AWS_DEFAULT_REGION="${TOS_REGION:-ap-southeast-1}"
-          bucket="${TOS_BUCKET:-byteplus-cli}"
+          export AWS_DEFAULT_REGION="${TOS_REGION:-cn-beijing}"
+          bucket="${TOS_BUCKET:-eps-common-public}"
           prefix="${TOS_PREFIX:-bp}"
-          endpoint="${TOS_S3_ENDPOINT:-https://tos-s3-ap-southeast-1.bytepluses.com}"
+          endpoint="${TOS_S3_ENDPOINT:-https://tos-s3-cn-beijing.volces.com}"
           concurrency="${TOS_UPLOAD_CONCURRENCY:-20}"
           destination="s3://${bucket}/${prefix}/v${VERSION}/"
 
@@ -96,7 +96,7 @@ jobs:
           fi
 
           aws configure set default.s3.addressing_style virtual
-          find dist -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' -o -name '*SHA256SUMS' \) -print
+          find dist -maxdepth 1 -type f \( -name '*.zip' -o -name '*SHA256SUMS' \) -print
           aws --endpoint-url "$endpoint" s3 ls "s3://${bucket}/${prefix}/" || true
 
           pids=()
@@ -111,7 +111,7 @@ jobs:
               done
               pids=()
             fi
-          done < <(find dist -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' -o -name '*SHA256SUMS' \) -print | sort)
+          done < <(find dist -maxdepth 1 -type f \( -name '*.zip' -o -name '*SHA256SUMS' \) -print | sort)
 
           for pid in "${pids[@]}"; do
             wait "$pid"
@@ -126,7 +126,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           prefix="${TOS_PREFIX:-bp}"
-          public_base="${TOS_PUBLIC_BASE_URL:-https://byteplus-cli.tos-ap-southeast-1.bytepluses.com}"
+          public_base="${TOS_PUBLIC_BASE_URL:-https://cloudcache.volccdn.com}"
           download_base="${public_base%/}/${prefix}"
           node scripts/configure_npm_release.js "$VERSION" "$download_base"
 
@@ -137,7 +137,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           prefix="${TOS_PREFIX:-bp}"
-          public_base="${TOS_PUBLIC_BASE_URL:-https://byteplus-cli.tos-ap-southeast-1.bytepluses.com}"
+          public_base="${TOS_PUBLIC_BASE_URL:-https://cloudcache.volccdn.com}"
           download_base="${public_base%/}/${prefix}"
           archive="byteplus-cli_${VERSION}_linux_amd64.zip"
           checksum="byteplus-cli_${VERSION}_SHA256SUMS"
@@ -276,10 +276,10 @@ jobs:
           if [[ "$npm_tag" == "latest" ]]; then
             : "${AWS_ACCESS_KEY_ID:?missing secret TOS_ACCESS_KEY_ID}"
             : "${AWS_SECRET_ACCESS_KEY:?missing secret TOS_SECRET_ACCESS_KEY}"
-            export AWS_DEFAULT_REGION="${TOS_REGION:-ap-southeast-1}"
-            bucket="${TOS_BUCKET:-byteplus-cli}"
+            export AWS_DEFAULT_REGION="${TOS_REGION:-cn-beijing}"
+            bucket="${TOS_BUCKET:-eps-common-public}"
             prefix="${TOS_PREFIX:-bp}"
-            endpoint="${TOS_S3_ENDPOINT:-https://tos-s3-ap-southeast-1.bytepluses.com}"
+            endpoint="${TOS_S3_ENDPOINT:-https://tos-s3-cn-beijing.volces.com}"
             manifest_error="$(mktemp)"
             if current_manifest="$(aws --endpoint-url "$endpoint" s3 cp \
               "s3://${bucket}/${prefix}/version_manifest.json" - 2>"$manifest_error")"; then
@@ -324,11 +324,11 @@ jobs:
           : "${AWS_ACCESS_KEY_ID:?missing secret TOS_ACCESS_KEY_ID}"
           : "${AWS_SECRET_ACCESS_KEY:?missing secret TOS_SECRET_ACCESS_KEY}"
 
-          export AWS_DEFAULT_REGION="${TOS_REGION:-ap-southeast-1}"
-          bucket="${TOS_BUCKET:-byteplus-cli}"
+          export AWS_DEFAULT_REGION="${TOS_REGION:-cn-beijing}"
+          bucket="${TOS_BUCKET:-eps-common-public}"
           prefix="${TOS_PREFIX:-bp}"
-          endpoint="${TOS_S3_ENDPOINT:-https://tos-s3-ap-southeast-1.bytepluses.com}"
-          public_base="${TOS_PUBLIC_BASE_URL:-https://byteplus-cli.tos-ap-southeast-1.bytepluses.com}"
+          endpoint="${TOS_S3_ENDPOINT:-https://tos-s3-cn-beijing.volces.com}"
+          public_base="${TOS_PUBLIC_BASE_URL:-https://cloudcache.volccdn.com}"
           cdn_base="${public_base%/}/${prefix}"
           root_dest="s3://${bucket}/${prefix}/"
 

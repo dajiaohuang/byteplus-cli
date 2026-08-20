@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	defaultCDNBaseURL    = "https://byteplus-cli.tos-ap-southeast-1.bytepluses.com/bp"
+	defaultCDNBaseURL    = "https://cloudcache.volccdn.com/bp"
 	defaultGitHubAPIBase = "https://api.github.com"
 	defaultGitHubOwner   = "byteplus-sdk"
 	defaultGitHubRepo    = "byteplus-cli"

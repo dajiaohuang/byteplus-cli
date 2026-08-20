@@ -7,7 +7,7 @@ const fs = require("fs");
 const path = require("path");
 
 const VERSION = require("./package.json").version;
-const DEFAULT_DOWNLOAD_BASE_URL = "https://byteplus-cli.tos-ap-southeast-1.bytepluses.com/bp";
+const DEFAULT_DOWNLOAD_BASE_URL = "https://cloudcache.volccdn.com/bp";
 const CHECKSUM_PATH = path.join(__dirname, "checksum");
 const OFFICIAL_RELEASES_URL = "https://github.com/byteplus-sdk/byteplus-cli/releases";
 const DOWNLOAD_BASE_URL = normalizeBaseURL(
