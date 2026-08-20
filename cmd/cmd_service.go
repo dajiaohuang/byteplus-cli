@@ -1,23 +1,6 @@
-/*
- * // Copyright (c) 2024 Bytedance Ltd. and/or its affiliates
- * //
- * // Licensed under the Apache License, Version 2.0 (the "License");
- * // you may not use this file except in compliance with the License.
- * // You may obtain a copy of the License at
- * //
- * //	http://www.apache.org/licenses/LICENSE-2.0
- * //
- * // Unless required by applicable law or agreed to in writing, software
- * // distributed under the License is distributed on an "AS IS" BASIS,
- * // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * // See the License for the specific language governing permissions and
- * // limitations under the License.
- */
-
 package cmd
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -28,6 +11,7 @@ func init() {
 }
 
 func generateServiceCommands() {
+	usageTemplate := serviceUsageTemplate()
 	for svc, actionMeta := range rootSupport.SupportAction {
 		apiMetas := rootSupport.SupportTypes[svc]
 		svc := svc
@@ -41,7 +25,7 @@ func generateServiceCommands() {
 			},
 		}
 
-		svcCmd.SetUsageTemplate(serviceUsageTemplate())
+		svcCmd.SetUsageTemplate(usageTemplate)
 		svcCmd.ValidArgs = validActions
 
 		actionCmds := generateActionCmd(svc, actionMeta, apiMetas)
@@ -69,48 +53,44 @@ func generateServiceCommands() {
 // uses DisableFlagParsing, cobra only reaches here when no valid action
 // subcommand matched. We resolve the intended action from the raw args and
 // surface a clear "unsupported action" error instead of cobra's flag-parsing
-// error, even when fixed flags such as ---region are present.
+// error, even when system flags such as --region are present.
 func runServiceCmd(cmd *cobra.Command, svc string, validActions []string, args []string) error {
-	for _, a := range args {
-		if a == "-h" || a == "--help" {
-			return cmd.Help()
-		}
+	if argsContainHelp(args) {
+		return cmd.Help()
 	}
-	var first string
-	for _, a := range args {
-		if !strings.HasPrefix(a, "-") {
-			first = a
+	positional, err := parseInvocationArgs(args)
+	if err != nil {
+		return err
+	}
+	if len(positional) == 0 {
+		return cmd.Help()
+	}
+	action := positional[0]
+	known := false
+	for _, va := range validActions {
+		if va == action {
+			known = true
 			break
 		}
 	}
-	if first == "" {
-		return cmd.Help()
-	}
-	for _, va := range validActions {
-		if va == first {
-			return nil
-		}
-	}
-	return fmt.Errorf("%q is not a supported action of %q", first, svc)
+	return dispatchServiceAction(ctx, svc, action, known)
 }
 
 func serviceUsageTemplate() string {
-	return `Usage:{{if .Runnable}}
+	return "Usage:" + `{{if .Runnable}}
   {{.CommandPath}} [action]{{end}} [params] {{if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{if eq (len .Groups) 0}}
 
-Available Actions:
-  Action                  Description
+` + "Available Actions:" + `
+  ` + "Action" + `                  ` + "Description" + `
   ------                  -----------{{range $cmds}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{else}}{{range $group := .Groups}}
 
 {{.Title}}{{range $cmds}}{{if (and (eq .GroupID $group.ID) (or .IsAvailableCommand (eq .Name "help")))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
 
-Use "{{.CommandPath}} [action] --help" for more information about a action.{{end}}
+` + `Use "{{.CommandPath}} [action] --help" for more information about an action.` + `{{end}}
 
-Fixed Flags:
-  ---profile string    Use a configured profile only for this invocation.
-  ---region string     Override the region only for this invocation.
-  ---endpoint string   Override the endpoint only for this invocation.
+` + "System Flags:" + `
+` + localizedSystemFlagsHelp() + `
 `
 }

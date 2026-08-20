@@ -39,7 +39,7 @@ assert.strictEqual(pkg.bin.bp, "bin/bp");
 assert.strictEqual(pkg.name, "@byteplus/cli");
 assert.strictEqual(version, pkg.version);
 assert.strictEqual(pkg.repository.url, "https://github.com/byteplus-sdk/byteplus-cli");
-assert.strictEqual(defaultDownloadBaseURL, "https://byteplus-cli.tos-ap-southeast-1.bytepluses.com/bp");
+assert.strictEqual(defaultDownloadBaseURL, "https://cloudcache.volccdn.com/bp");
 assert.strictEqual(binaryNameForPlatform("win32"), "bp.exe");
 assert.strictEqual(binaryNameForPlatform("linux"), "bp");
 assert.strictEqual(binaryNameForPlatform("darwin"), "bp");

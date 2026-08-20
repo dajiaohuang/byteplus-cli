@@ -126,14 +126,11 @@ func lookupAssetServiceDescription(service string) (ServiceDescription, bool) {
 
 func formatServiceShort(service string) string {
 	d := getServiceDescription(service)
-	parts := []string{}
-	if d.ServiceCn != "" {
-		parts = append(parts, d.ServiceCn)
+	// English-only CLI help.
+	if strings.TrimSpace(d.ServiceEn) != "" && !containsCJK(d.ServiceEn) {
+		return d.ServiceEn
 	}
-	if d.ServiceEn != "" {
-		parts = append(parts, d.ServiceEn)
-	}
-	return strings.Join(parts, " - ")
+	return service
 }
 
 func getApiDescription(service, action string) ApiDescription {
@@ -191,24 +188,23 @@ func mergeApiDescription(primary, fallback ApiDescription) ApiDescription {
 
 func formatActionShort(service, action string) string {
 	d := getApiDescription(service, action)
-	if d.NameCn != "" {
-		return d.NameCn
+	// English-only CLI help.
+	if strings.TrimSpace(d.NameEn) != "" && !containsCJK(d.NameEn) {
+		return d.NameEn
 	}
-	return d.NameEn
+	return action
 }
 
 func formatActionLong(service, action string) string {
 	d := getApiDescription(service, action)
-	parts := []string{}
-	if d.NameCn != "" {
-		parts = append(parts, d.NameCn)
+	// English-only CLI help.
+	if strings.TrimSpace(d.DescriptionEn) != "" && !containsCJK(d.DescriptionEn) {
+		return firstLine(d.DescriptionEn)
 	}
-	if desc := preferredDescription(d); desc != "" {
-		parts = append(parts, firstLine(desc))
-	} else if d.NameEn != "" {
-		parts = append(parts, d.NameEn)
+	if strings.TrimSpace(d.Description) != "" && !containsCJK(d.Description) {
+		return firstLine(d.Description)
 	}
-	return strings.Join(parts, " - ")
+	return formatActionShort(service, action)
 }
 
 func preferredDescription(d ApiDescription) string {

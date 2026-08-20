@@ -50,7 +50,6 @@ func TestExplorerDescriptionsFallbackWhenAssetMissing(t *testing.T) {
 
 func replaceExplorerDescriptionsAsset(fn func() ([]byte, error)) func() {
 	oldFn := loadExplorerDescriptionsAsset
-	oldOnce := explorerDescriptionsOnce
 	oldData := explorerDescriptions
 
 	loadExplorerDescriptionsAsset = fn
@@ -59,7 +58,7 @@ func replaceExplorerDescriptionsAsset(fn func() ([]byte, error)) func() {
 
 	return func() {
 		loadExplorerDescriptionsAsset = oldFn
-		explorerDescriptionsOnce = oldOnce
+		explorerDescriptionsOnce = sync.Once{}
 		explorerDescriptions = oldData
 	}
 }

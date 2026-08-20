@@ -21,6 +21,7 @@ package util
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"os/user"
 	"runtime"
@@ -66,13 +67,23 @@ func GetConfigFileDir() (string, error) {
 	return homeDir + "/.byteplus/", nil
 }
 
+// getHomeDir resolves the current user's home directory.
+// Prefer os.UserHomeDir (reads $HOME / $USERPROFILE first); fall back to user.Current().
 func getHomeDir() (string, error) {
-	user, err := user.Current()
+	if home, err := os.UserHomeDir(); err == nil {
+		if home = strings.TrimSpace(home); home != "" {
+			return home, nil
+		}
+	}
+	u, err := user.Current()
 	if err != nil {
 		return "", err
 	}
-
-	return user.HomeDir, nil
+	home := strings.TrimSpace(u.HomeDir)
+	if home == "" {
+		return "", fmt.Errorf("empty home directory")
+	}
+	return home, nil
 }
 
 // OpenBrowser attempts to open the URL in the default browser.

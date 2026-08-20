@@ -11,10 +11,11 @@ import (
 
 func TestClientVersionCanBeInjectedByLdflags(t *testing.T) {
 	tmpDir := t.TempDir()
-	binPath := filepath.Join(tmpDir, "bp")
+	binName := "bp"
 	if runtime.GOOS == "windows" {
-		binPath += ".exe"
+		binName = "bp.exe"
 	}
+	binPath := filepath.Join(tmpDir, binName)
 	injectedVersion := "9.8.7-test"
 
 	build := exec.Command(
@@ -33,6 +34,8 @@ func TestClientVersionCanBeInjectedByLdflags(t *testing.T) {
 	}
 
 	version := exec.Command(binPath, "--version")
+	// Avoid background upgrade notice on stderr polluting CombinedOutput.
+	version.Env = append(os.Environ(), "BYTEPLUS_CLI_DISABLE_UPDATE_CHECK=1")
 	output, err := version.CombinedOutput()
 	if err != nil {
 		t.Fatalf("version command failed: %v\n%s", err, output)

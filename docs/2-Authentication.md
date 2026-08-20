@@ -1,29 +1,29 @@
-[Getting Started](1-GettingStarted.md) | Authentication | [Configuration](3-Configuration.md)
+[← Getting Started](1-GettingStarted.md) | Authentication | [Configuration →](3-Configuration.md)
 
 ---
 
 ## Authentication
 
-BytePlus CLI supports config profiles, the environment-based default credential chain, SSO, and Console Login. Authentication configuration is stored in `~/.byteplus/config.json`.
+Byteplus CLI supports config profiles, the environment-based default credential chain, SSO, and Console Login. Authentication configuration is stored in `~/.byteplus/config.json`.
 
 ## Credential Resolution Priority
 
 When a service command creates an SDK client, credentials and runtime settings are resolved in this order:
 
-1. `---profile`: applies only to the current invocation and must reference an existing profile.
+1. `--profile`: applies only to the current invocation and must reference an existing profile.
 2. The `current` profile in the config file.
-3. The profile named by `BYTEPLUS_PROFILE`.
+3. The profile named by `BYTEPLUS_PROFILE` or `BYTEPLUS_CLI_PROFILE`.
 4. The SDK default credential chain: environment variables, OIDC, CLI config provider, ECS instance role, and other SDK providers.
 
 Region priority:
 
-1. `---region`
+1. `--region`
 2. `region` in the profile
 3. `BYTEPLUS_REGION`
 
 Endpoint priority:
 
-1. `---endpoint`
+1. `--endpoint`
 2. `endpoint` in the profile
 3. `BYTEPLUS_ENDPOINT`
 
@@ -68,7 +68,7 @@ bp configure set --profile sts-dev --region ap-southeast-1 \
 ```shell
 bp configure set --profile ram-dev --mode ramrolearn --region ap-southeast-1 \
   --access-key AK --secret-key SK \
-  --role-name YourRoleName --account-id 2000000000
+  --role-name YourRoleName --account-id 2100000000
 ```
 
 ### OIDC
@@ -76,7 +76,7 @@ bp configure set --profile ram-dev --mode ramrolearn --region ap-southeast-1 \
 ```shell
 bp configure set --profile ci-oidc --mode oidc --region ap-southeast-1 \
   --oidc-token-file /var/run/secrets/oidc-token \
-  --role-trn trn:iam::2000000000:role/CIRole
+  --role-trn trn:iam::2100000000:role/CIRole
 ```
 
 ### ECS Instance Role
@@ -94,7 +94,7 @@ mode: Credential mode. One of ak, sso, console-login, ramrolearn, oidc, ecsrole.
 access-key: Access Key.
 secret-key: Secret Key.
 session-token: Temporary credential session token.
-region: API region. Optional during configure set, but required by API calls through profile, ---region, or BYTEPLUS_REGION.
+region: API region. Optional during configure set, but required by API calls through profile, --region, or BYTEPLUS_REGION.
 endpoint: Custom endpoint. Ignored when endpoint-resolver is standard.
 endpoint-resolver: Set to standard to use the standard endpoint resolver.
 http-proxy: HTTP proxy used by the SDK when SSL is disabled.
@@ -134,7 +134,7 @@ OIDC environment variables:
 
 ```shell
 export BYTEPLUS_OIDC_TOKEN_FILE=/path/to/oidc/token
-export BYTEPLUS_OIDC_ROLE_TRN=trn:iam::2000000000:role/YourRoleName
+export BYTEPLUS_OIDC_ROLE_TRN=trn:iam::2100000000:role/YourRoleName
 export BYTEPLUS_REGION=ap-southeast-1
 ```
 
@@ -158,7 +158,7 @@ SSO uses two layers:
 ```shell
 # 1. Create an SSO session. registration-scopes can be omitted
 bp configure sso-session --name my-sso \
-  --start-url https://{custom}.bytepluscloudidentity.com/userportal \
+  --start-url https://{custom}.volccloudidentity.com/userportal \
   --region ap-southeast-1
 
 # 2. Create an SSO profile, authorize with device code, and select account and role
@@ -187,7 +187,7 @@ bp sts GetCallerIdentity
 
 ```shell
 bp configure sso-session --name my-sso \
-  --start-url https://{custom}.bytepluscloudidentity.com/userportal \
+  --start-url https://{custom}.volccloudidentity.com/userportal \
   --region ap-southeast-1 \
   --registration-scopes cloudidentity:account:access,offline_access
 ```
@@ -265,7 +265,7 @@ Logout does not delete SSO profiles, delete sso-session configuration, or clear 
 
 ## Console Login
 
-Console Login uses BytePlus Console OAuth 2.0 + PKCE and caches temporary STS credentials locally.
+Console Login uses Byteplus Console OAuth 2.0 + PKCE and caches temporary STS credentials locally.
 
 ```shell
 # Log in with the default profile. If region is omitted, the CLI prompts for it
@@ -343,4 +343,4 @@ Usually nothing. The default is `cloudidentity:account:access,offline_access`.
 
 ---
 
-[Getting Started](1-GettingStarted.md) | Authentication | [Configuration](3-Configuration.md)
+[← Getting Started](1-GettingStarted.md) | Authentication | [Configuration →](3-Configuration.md)

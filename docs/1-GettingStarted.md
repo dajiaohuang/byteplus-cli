@@ -9,7 +9,7 @@ This guide explains how to install `bp`, put it on your PATH, and make a minimal
 ## Requirements
 
 - Go 1.12+ is recommended.
-- Use the `bp` command prefix in scripts and shell examples.
+- Starting from v1.0.20, the command prefix changed from `byteplus-cli` to `bp`. Earlier versions are not affected. After upgrading to v1.0.20 or later, update scripts that still call `byteplus-cli`.
 
 ## Install
 
@@ -28,15 +28,25 @@ bp version
 bp --help
 ```
 
-To upgrade to the latest version:
+To upgrade an **npm** install, keep package metadata consistent by upgrading through npm:
 
 ```shell
-npm update -g @byteplus/cli
+npm install -g @byteplus/cli@latest
+```
+
+`bp upgrade` detects npm installs and runs the same `npm install -g` command for you (it never replaces the binary in place). If the delegated npm command fails, it prints the manual command above so you can fix permissions or network issues and retry.
+
+For **Release binaries** or **source builds** (standalone):
+
+```shell
+bp upgrade
+bp upgrade --yes
+bp upgrade --version 1.0.49
 ```
 
 ### Download from Release
 
-1. Open <https://github.com/byteplus-sdk/byteplus-cli/releases>.
+1. Open <https://github.com/byteplus/byteplus-cli/releases>.
 2. Download the archive for your OS and architecture.
 3. Extract it to get `bp`, or `bp.exe` on Windows.
 
@@ -132,10 +142,10 @@ bp sts GetCallerIdentity
 Override region for one invocation:
 
 ```shell
-bp sts GetCallerIdentity ---region ap-southeast-1
+bp sts GetCallerIdentity --region ap-southeast-1
 ```
 
-`---region` is a CLI fixed flag and does not conflict with API parameters written as `--Param value`. See [Usage](4-Usage.md) for more examples.
+`--region` is a public CLI system flag and is placed after the action. If the action exposes an exact case-sensitive business parameter with the same name, the double-dash form is parsed as the business parameter. See [Usage](4-Usage.md) for more examples.
 
 ---
 

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,7 +20,7 @@ func TestNewSimpleClientWritesCliDebugSummary(t *testing.T) {
 				Mode:       ModeAK,
 				AccessKey:  "ak-should-not-leak",
 				SecretKey:  "sk-should-not-leak",
-				Region:     "ap-southeast-1",
+				Region:     "cn-beijing",
 				Endpoint:   "sts.byteplusapi.com",
 				DisableSSL: &disableSSL,
 			},
@@ -37,7 +38,7 @@ func TestNewSimpleClientWritesCliDebugSummary(t *testing.T) {
 		"profile_source=current",
 		"profile=default",
 		"credential_mode=ak",
-		"region=ap-southeast-1",
+		"region=cn-beijing",
 		"endpoint=sts.byteplusapi.com",
 	} {
 		if !strings.Contains(logs, want) {
@@ -49,18 +50,149 @@ func TestNewSimpleClientWritesCliDebugSummary(t *testing.T) {
 	}
 }
 
-func TestCallSdkWritesDebugRequestAttemptWithRequestID(t *testing.T) {
-	defer disableProxyEnvForTest(t)()
+func TestNewSimpleClientUsesProfileEndpointWhenNoFlag(t *testing.T) {
+	disableSSL := false
+	ctx := NewContext()
+	ctx.config = &Configure{
+		Current: "default",
+		Profiles: map[string]*Profile{
+			"default": {
+				Name:       "default",
+				Mode:       ModeAK,
+				AccessKey:  "ak-test",
+				SecretKey:  "sk-test",
+				Region:     "cn-beijing",
+				Endpoint:   "sts.byteplusapi.com",
+				DisableSSL: &disableSSL,
+			},
+		},
+	}
 
+	var out bytes.Buffer
+	ctx.debugLogger = &DebugLogger{enabled: true, out: &out}
+
+	sdk, err := NewSimpleClient(ctx)
+	if err != nil {
+		t.Fatalf("NewSimpleClient returned error: %v", err)
+	}
+	if sdk.Config.Endpoint == nil || *sdk.Config.Endpoint != "sts.byteplusapi.com" {
+		got := ""
+		if sdk.Config.Endpoint != nil {
+			got = *sdk.Config.Endpoint
+		}
+		t.Fatalf("expected profile endpoint, got %q", got)
+	}
+
+	logs := out.String()
+	if !strings.Contains(logs, "endpoint=sts.byteplusapi.com") {
+		t.Fatalf("debug logs should reflect profile endpoint, got:\n%s", logs)
+	}
+}
+
+func TestCallSdkAppliesCustomHeadersAndJSONContentType(t *testing.T) {
+	var gotCT, gotFoo string
+	const contentType = "application/json; profile=readme; charset=utf-8"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCT = r.Header.Get("Content-Type")
+		gotFoo = r.Header.Get("X-Foo")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ResponseMetadata":{"RequestId":"req-debug-123","Action":"DescribeInstances","Version":"2020-01-01","Service":"ecs","Region":"ap-southeast-1"},"Result":{"Ok":true}}`))
+		_, _ = w.Write([]byte(`{"ResponseMetadata":{"RequestId":"req-header-1","Action":"DescribeInstances","Version":"2020-01-01","Service":"ecs","Region":"cn-beijing"},"Result":{"Ok":true}}`))
 	}))
 	defer server.Close()
 
 	defer setenvForTest(t, "BYTEPLUS_ACCESS_KEY", "ak-test")()
 	defer setenvForTest(t, "BYTEPLUS_SECRET_KEY", "sk-test")()
-	defer setenvForTest(t, "BYTEPLUS_REGION", "ap-southeast-1")()
+	defer setenvForTest(t, "BYTEPLUS_REGION", "cn-beijing")()
+
+	ctx := NewContext()
+	endpointFlag, err := ctx.fixedFlags.AddByName("endpoint")
+	if err != nil {
+		t.Fatalf("add endpoint flag: %v", err)
+	}
+	endpointFlag.SetValue(server.URL)
+
+	sdk, err := NewSimpleClient(ctx)
+	if err != nil {
+		t.Fatalf("NewSimpleClient: %v", err)
+	}
+	if _, err := sdk.CallSdk(SdkClientInfo{
+		ServiceName: "ecs",
+		Action:      "DescribeInstances",
+		Version:     "2020-01-01",
+		Method:      "POST",
+		ContentType: contentType,
+		Headers: []requestHeader{
+			{Name: "X-Foo", Value: "bar"},
+			{Name: "Content-Type", Value: contentType},
+		},
+	}, &map[string]interface{}{"k": "v"}); err != nil {
+		t.Fatalf("CallSdk: %v", err)
+	}
+	if gotFoo != "bar" {
+		t.Fatalf("X-Foo = %q, want bar", gotFoo)
+	}
+	if gotCT != contentType {
+		t.Fatalf("Content-Type = %q, want exact user value %q", gotCT, contentType)
+	}
+}
+
+func TestCallSdkPreservesLargeJSONInteger(t *testing.T) {
+	const wantBody = `{"Id":9223372036854775807}`
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+		}
+		gotBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ResponseMetadata":{"RequestId":"req-json-number","Action":"GetAccountSummary","Version":"2018-01-01","Service":"iam","Region":"cn-beijing"},"Result":{"Ok":true}}`))
+	}))
+	defer server.Close()
+
+	defer setenvForTest(t, "BYTEPLUS_ACCESS_KEY", "ak-test")()
+	defer setenvForTest(t, "BYTEPLUS_SECRET_KEY", "sk-test")()
+	defer setenvForTest(t, "BYTEPLUS_REGION", "cn-beijing")()
+
+	ctx := NewContext()
+	endpointFlag, err := ctx.fixedFlags.AddByName("endpoint")
+	if err != nil {
+		t.Fatalf("add endpoint flag: %v", err)
+	}
+	endpointFlag.SetValue(server.URL)
+
+	sdk, err := NewSimpleClient(ctx)
+	if err != nil {
+		t.Fatalf("NewSimpleClient: %v", err)
+	}
+	input, err := parseJSONBody(wantBody)
+	if err != nil {
+		t.Fatalf("parseJSONBody: %v", err)
+	}
+	if _, err := sdk.CallSdk(SdkClientInfo{
+		ServiceName: "iam",
+		Action:      "GetAccountSummary",
+		Version:     "2018-01-01",
+		Method:      "POST",
+		ContentType: "application/json",
+	}, input); err != nil {
+		t.Fatalf("CallSdk: %v", err)
+	}
+	if gotBody != wantBody {
+		t.Fatalf("request body = %q, want %q", gotBody, wantBody)
+	}
+}
+
+func TestCallSdkWritesDebugRequestAttemptWithRequestID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ResponseMetadata":{"RequestId":"req-debug-123","Action":"DescribeInstances","Version":"2020-01-01","Service":"ecs","Region":"cn-beijing"},"Result":{"Ok":true}}`))
+	}))
+	defer server.Close()
+
+	defer setenvForTest(t, "BYTEPLUS_ACCESS_KEY", "ak-test")()
+	defer setenvForTest(t, "BYTEPLUS_SECRET_KEY", "sk-test")()
+	defer setenvForTest(t, "BYTEPLUS_REGION", "cn-beijing")()
 
 	ctx := NewContext()
 	endpointFlag, err := ctx.fixedFlags.AddByName("endpoint")
@@ -101,8 +233,6 @@ func TestCallSdkWritesDebugRequestAttemptWithRequestID(t *testing.T) {
 }
 
 func TestCallSdkWritesDebugRequestAttemptErrorWithRequestID(t *testing.T) {
-	defer disableProxyEnvForTest(t)()
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -112,7 +242,7 @@ func TestCallSdkWritesDebugRequestAttemptErrorWithRequestID(t *testing.T) {
 
 	defer setenvForTest(t, "BYTEPLUS_ACCESS_KEY", "ak-test")()
 	defer setenvForTest(t, "BYTEPLUS_SECRET_KEY", "sk-test")()
-	defer setenvForTest(t, "BYTEPLUS_REGION", "ap-southeast-1")()
+	defer setenvForTest(t, "BYTEPLUS_REGION", "cn-beijing")()
 
 	ctx := NewContext()
 	endpointFlag, err := ctx.fixedFlags.AddByName("endpoint")
@@ -146,30 +276,6 @@ func TestCallSdkWritesDebugRequestAttemptErrorWithRequestID(t *testing.T) {
 	} {
 		if !strings.Contains(logs, want) {
 			t.Fatalf("debug logs missing %q:\n%s", want, logs)
-		}
-	}
-}
-
-func disableProxyEnvForTest(t *testing.T) func() {
-	t.Helper()
-
-	cleanups := make([]func(), 0, 8)
-	for _, key := range []string{
-		"HTTP_PROXY",
-		"HTTPS_PROXY",
-		"http_proxy",
-		"https_proxy",
-		"ALL_PROXY",
-		"all_proxy",
-	} {
-		cleanups = append(cleanups, setenvForTest(t, key, ""))
-	}
-	cleanups = append(cleanups, setenvForTest(t, "NO_PROXY", "127.0.0.1,localhost"))
-	cleanups = append(cleanups, setenvForTest(t, "no_proxy", "127.0.0.1,localhost"))
-
-	return func() {
-		for i := len(cleanups) - 1; i >= 0; i-- {
-			cleanups[i]()
 		}
 	}
 }
