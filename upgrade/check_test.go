@@ -586,8 +586,10 @@ func TestSameLocalCalendarDay(t *testing.T) {
 func TestNoticeAlreadyClaimedToday(t *testing.T) {
 	now := time.Now()
 	y, m, d := now.In(time.Local).Date()
-	today := time.Date(y, m, d, 10, 0, 0, 0, time.Local).Unix()
-	yesterday := time.Date(y, m, d-1, 10, 0, 0, 0, time.Local).Unix()
+	// Midnight is always in the past, so this fixture cannot trip the future guard.
+	today := time.Date(y, m, d, 0, 0, 0, 0, time.Local).Unix()
+	yesterday := time.Date(y, m, d-1, 0, 0, 0, 0, time.Local).Unix()
+	future := now.Add(2 * time.Hour).Unix()
 
 	if !noticeAlreadyClaimedToday(versionCheckCache{NoticedAt: today, NoticedCurrent: "1.0.50"}, "1.0.50", now) {
 		t.Fatal("same current same day should claim")
@@ -597,6 +599,9 @@ func TestNoticeAlreadyClaimedToday(t *testing.T) {
 	}
 	if noticeAlreadyClaimedToday(versionCheckCache{NoticedAt: yesterday, NoticedCurrent: "1.0.50"}, "1.0.50", now) {
 		t.Fatal("previous day should not claim")
+	}
+	if noticeAlreadyClaimedToday(versionCheckCache{NoticedAt: future, NoticedCurrent: "1.0.50"}, "1.0.50", now) {
+		t.Fatal("future stamp should not claim")
 	}
 	if noticeAlreadyClaimedToday(versionCheckCache{}, "1.0.50", now) {
 		t.Fatal("empty stamp should not claim")
