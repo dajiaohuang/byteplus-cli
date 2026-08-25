@@ -10,12 +10,13 @@ Basic command format:
 bp <service> <action> [--Param value ...] [--header Name=Value ...] [--body json]
                       [--profile name] [--region region] [--endpoint endpoint]
                       [--version api-version] [--method GET|POST] [--force]
+                      [--output json|table|table-num|text|yaml|off] [--query jmespath]
 ```
 
 Argument kinds:
 
 - **API parameters**: double-dash `--Param value` (enter request body/query; reserved names `body` / `header` excluded)
-- **Public system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--version` / `--method` / `--force`
+- **Public system flags** (after the action): `--profile` / `--region` / `--endpoint` / `--version` / `--method` / `--force` / `--output` / `--query`
 - **Reserved double-dash controls**: `--header` (HTTP headers), `--body` (JSON body); **not** API parameters
 
 System flags in API calls use double hyphens and are placed after the action. If an action exposes an exact-name API parameter (case-sensitive), the double-dash form is parsed as the API parameter.
@@ -97,6 +98,8 @@ Public system flags use the standard double-hyphen form:
 | `--version` | Set the **API version** for this call; if omitted, uses the bundled service version (not the CLI binary version from root `bp -v` / `bp --version` / `bp version`) |
 | `--force` | Skip service/action metadata validation and force-call unlisted or newly released APIs; **unlisted services** require `--version` and a fixed endpoint (`--endpoint` or profile/`BYTEPLUS_ENDPOINT` when resolver is not `standard`); bundled services can fall back to metadata. Presence-only: write `--force` alone, not `--force true` |
 | `--method` | HTTP method (`GET`/`POST`); same rules on normal and `--force` paths: explicit value wins, else action metadata, else `GET` |
+| `--output` | API response format: `json` (default), `table`, `table-num`, `text`, `yaml`, or `off` |
+| `--query` | JMESPath expression applied to the full response before formatting |
 
 After the action, a double-dash flag whose exact case-sensitive name is exposed by that action is parsed as an API parameter. Without such a conflict, it is parsed as a system flag.
 
@@ -283,8 +286,52 @@ Missing region:
 region not set, please set it via profile, --region flag, or BYTEPLUS_REGION environment variable
 ```
 
-Public system flags (double-dash): `--profile`, `--region`, `--endpoint`, `--force`, `--version`, `--method`.
+Public system flags (double-dash): `--profile`, `--region`, `--endpoint`, `--force`, `--version`, `--method`, `--output`, `--query`.
 Reserved double-dash controls: `--header`, `--body` (see “Reserved Double-Dash Controls” above).
+
+## Filtering and Output Formats
+
+A successful API call prints the full response, normally `ResponseMetadata` plus `Result`, as JSON by default. The response pipeline is `raw response → --query → --output → stdout`. Both flags apply only to the current invocation and are never persisted.
+
+```shell
+# Project selected fields, preserving the hash key order as table columns
+bp ecs DescribeInstances \
+  --query "Result.Instances[*].{Name:InstanceName,Id:InstanceId,Status:Status}" \
+  --output table
+
+# Add a leading row-number column
+bp ecs DescribeInstances \
+  --query "Result.Instances[*].{Name:InstanceName,Id:InstanceId}" \
+  --output table-num
+
+# Tab-separated text, YAML, or no response output
+bp sts GetCallerIdentity --query "Result.AccountId" --output text
+bp sts GetCallerIdentity --output yaml
+bp ecs DescribeInstances --output off
+```
+
+Output behavior:
+
+- `json` preserves exact response number tokens and supports optional ANSI token coloring.
+- `table` and `table-num` render nested data in titled sections instead of hiding it or embedding unreadable JSON. `table-num` adds a `#` column starting at 1.
+- A one-record table stays horizontal unless a known terminal width requires vertical `Field | Value` layout. Over-wide terminal tables wrap the widest columns; piped or redirected output is not width-fitted.
+- `text` recursively flattens objects and lists into tab-separated rows with stable uppercase field-path labels. Nested control characters are escaped so response data cannot alter row or column boundaries.
+- `yaml` preserves large integers, long decimals, exponent spelling, and trailing zeros without conversion to rounded floating-point values. YAML keys are sorted alphabetically.
+- `off` still sends the API request but writes no response body and skips response-dependent query evaluation. Query syntax is still validated before the request.
+- Every renderer receives the complete selected value. `ResponseMetadata`, including request identifiers, is not silently removed. Empty lists render as `(empty)` in tables and produce no text rows; a missing or null query result renders as `None` in table and text.
+- For `table`, `table-num`, and `text`, an explicit JMESPath multiselect hash controls column order when its keys exactly match the rendered object. Other object keys use deterministic alphabetical order.
+- Booleans are `True` / `False` in human-readable table and text formats. JSON and YAML use their native lowercase spelling.
+- When color is enabled, ANSI styling is emitted only for terminal output. Redirects, pipes, and a non-empty `NO_COLOR` environment variable disable table colors. `NO_COLOR` also disables JSON colors.
+- Rendering is buffered and write or flush failures are returned as command errors. API failures are written to stderr and do not pass through `--query` or `--output`.
+
+Query behavior:
+
+- `--query` uses JMESPath against the full response, so service data paths usually start with `Result.`. Use `--query "@"` to explicitly select the complete response.
+- Syntax errors, unknown functions, wrong argument counts, incomplete indexes or expressions, and unsafe exact-number arithmetic are rejected before the API request. Diagnostics include the expression, a caret, and an actionable hint when available.
+- Evaluation errors that depend on response types are reported after a successful API call as response-output failures and do not panic.
+- Numeric comparisons, filters, sorting, and supported arithmetic use exact JSON decimals. Integers above 2^53 are not rounded, equivalent spellings such as `1`, `1.0`, and `1e0` compare equal, and projections retain the original token. Arithmetic with a decimal exponent above 10000 is rejected rather than silently rounded.
+
+If an action exposes an exact API parameter named `query` or `output`, the normal double-dash name is routed to that API parameter according to the standard conflict rule. For unlisted actions, metadata cannot declare such a collision, so both names retain their system-flag meanings.
 
 ---
 

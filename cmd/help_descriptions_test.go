@@ -408,5 +408,5 @@ func TestPublicDocsOnlyAdvertiseDoubleDashSystemFlags(t *testing.T) {
 func expectedFixedFlagsForTest() []string {
 	// 与 localizedSystemFlagsHelp / root·service·action usage 保持一致：
 	// 对外 system flags 全部双横线；三横线别名不展示；保留 --header/--body。
-	return []string{"--profile", "--region", "--endpoint", "--version", "--method", "--force", "--header", "--body"}
+	return []string{"--profile", "--region", "--endpoint", "--version", "--method", "--force", "--output", "--query", "--header", "--body"}
 }

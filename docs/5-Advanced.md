@@ -122,7 +122,7 @@ Disable colored display:
 bp disable-color
 ```
 
-These commands update `enableColor` in the config file. Colored output affects `bp configure get`, `bp configure list`, and API response JSON display. It does not change response content.
+These commands update `enableColor` in the config file. Colored output affects `bp configure get`, `bp configure list`, and API responses when **`--output json` (default)** or **`--output table` / `table-num`**. It does not change response content, and nothing is colored when output is redirected, piped, or `NO_COLOR` is set. `text` / `yaml` / `off` are uncolored. See [Usage](4-Usage.md#filtering-and-output-formats) for filtering and formats (without `--query`, `table` renders the full response and splits nested data into titled sections; use `--query` to select exact columns).
 
 ## Debug Logs
 
@@ -349,7 +349,7 @@ BYTEPLUS_CLI_DEBUG=true bp sts GetCallerIdentity
 Public system flags:
 
 ```text
---profile, --region, --endpoint, --force, --version, --method
+--profile, --region, --endpoint, --force, --version, --method, --output, --query
 ```
 
 Reserved double-dash controls:

@@ -31,6 +31,8 @@ var systemFlagDefs = []systemFlagDef{
 	{name: "version", public: true, legacyEscape: true, preprocess: false},
 	{name: "method", public: true, legacyEscape: true, preprocess: false},
 	{name: "force", public: true, legacyEscape: true, preprocess: false, presenceOnly: true},
+	{name: "output", public: true, legacyEscape: true, preprocess: false},
+	{name: "query", public: true, legacyEscape: true, preprocess: false},
 }
 
 type systemFlagRegistry struct {
@@ -113,6 +115,8 @@ func localizedSystemFlagsHelp() string {
   --version string     ` + "API version; uses metadata when omitted (required with --force for unlisted services)." + `
   --method string      ` + "HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET." + `
   --force              ` + "Skip service/action metadata validation and force the call (presence-only; write --force alone, not --force true)." + `
+  --output string      ` + "Set response output format (json|table|table-num|text|yaml|off). Default: json. table-num is table plus a row-number column. off still calls the API but skips response-dependent --query evaluation." + `
+  --query string       ` + "JMESPath expression to filter/project the full response (paths usually start at Result.*) before formatting." + `
 
 ` + "Reserved double-dash controls (not API parameters):" + `
   --header string      ` + "Add a custom HTTP header as Name=Value; repeatable. Content-Type overrides metadata when set. Host/Authorization/Content-Length are blocked." + `

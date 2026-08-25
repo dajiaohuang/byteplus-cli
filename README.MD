@@ -1,8 +1,8 @@
-## Byteplus Command Line Tools
+## BytePlus Command Line Tools
 
 ### Overview
 
-1. Byteplus CLI Tool
+1. BytePlus CLI Tool
 2. Go 1.12+ is recommended.
 
 ### Installing `bp`
@@ -294,7 +294,7 @@ bp login -p dev -r ap-southeast-1
 bp login -p dev -r ap-southeast-1 --remote
 ```
 
-This command performs OAuth 2.0 + PKCE login through the Byteplus console and caches temporary STS credentials locally. Subsequent CLI commands can reuse the profile's temporary credentials.
+This command performs OAuth 2.0 + PKCE login through the BytePlus console and caches temporary STS credentials locally. Subsequent CLI commands can reuse the profile's temporary credentials.
 
 Parameters:
 - `--profile, -p`: Profile name, default `default`
@@ -443,7 +443,7 @@ Basic structure:
 bp <service> <action> [--param1 val1 --param2 val2 ...]
 ```
 
-Fixed flags use three hyphens and only affect the current invocation:
+System flags use double hyphens and only affect the current invocation:
 
 ```shell
 bp sts GetCallerIdentity --profile dev --region ap-southeast-1
@@ -455,6 +455,10 @@ Supported fixed flags:
 - `--profile`: use a configured profile only for this invocation.
 - `--region`: override the region only for this invocation.
 - `--endpoint`: override the endpoint only for this invocation.
+- `--output`: format API responses as `json` (default), `table`, `table-num`, `text`, `yaml`, or `off`.
+- `--query`: apply a JMESPath expression to the full API response before formatting.
+
+`--output` and `--query` apply only to the current invocation and are not persisted. See [Filtering and Output Formats](docs/4-Usage.md#filtering-and-output-formats) for examples and output contracts.
 
 You can enable CLI debug logs with an environment variable:
 
