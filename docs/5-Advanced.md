@@ -414,11 +414,10 @@ bp sso login --sso-session my-sso --no-browser
 Console Login:
 
 ```shell
-bp login --profile dev --region ap-southeast-1 --remote
-bp login --profile dev --region ap-southeast-1 --use-device-code --no-browser
+bp login --profile dev --region ap-southeast-1 --no-browser
 ```
 
-`--remote` uses the cross-device authorization code flow. `--use-device-code --no-browser` uses Device Authorization Grant and lets the CLI poll for completion.
+Console Login always uses the Device Authorization Grant. With `--no-browser` the CLI only prints the verification URL and user code, then polls for completion while you authorize on another device.
 
 ### Why does `--body` return `json format error`?
 

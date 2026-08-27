@@ -265,7 +265,7 @@ Logout does not delete SSO profiles, delete sso-session configuration, or clear 
 
 ## Console Login
 
-Console Login uses Byteplus Console OAuth 2.0 Authorization Code + PKCE and Device Authorization Grant, and caches temporary STS credentials locally.
+Console Login uses the Byteplus Console OAuth 2.0 Device Authorization Grant and caches temporary STS credentials locally.
 
 ```shell
 # Log in with the default profile. If region is omitted, the CLI prompts for it
@@ -274,14 +274,8 @@ bp login
 # Specify profile and region
 bp login -p dev -r ap-southeast-1
 
-# Use cross-device login for headless servers or containers
-bp login -p dev -r ap-southeast-1 --remote
-
-# Use device code login; the CLI attempts to open a browser and also prints the URL and user code
-bp login -p dev -r ap-southeast-1 --use-device-code
-
-# Use device code login without automatically opening a browser
-bp login -p dev -r ap-southeast-1 --use-device-code --no-browser
+# Log in without automatically opening a browser
+bp login -p dev -r ap-southeast-1 --no-browser
 ```
 
 Options:
@@ -289,19 +283,16 @@ Options:
 ```shell
 --profile, -p: Profile name. Defaults to default.
 --region, -r: Region. When omitted, the CLI prompts and uses ap-southeast-1 if you press Enter.
---remote: Cross-device authorization code login. Open the printed URL and paste the authorization code back into the terminal.
---use-device-code: Use the OAuth 2.0 Device Authorization Grant. The CLI polls for a token until authorization completes.
---no-browser: Do not automatically open a browser during device code login. Requires --use-device-code.
+--no-browser: Do not automatically open a browser during login.
 --endpoint-url: Sign-in service endpoint. Defaults to https://signin.byteplus.com and normally does not need changes.
 ```
 
-Login modes:
+How login works:
 
-- The default flow uses Authorization Code + PKCE and receives the result through a local callback on the current machine.
-- `--remote` still uses Authorization Code + PKCE, but disables the local callback and asks you to paste the authorization code shown by the browser.
-- `--use-device-code` uses Device Authorization Grant and does not require pasting the authorization result. The CLI prints `verification_uri` and `user_code` and polls the token endpoint.
-- Device code login attempts to open a browser by default, but always prints the URL, user code, and expiry even when browser launch succeeds.
-- `--remote` and `--use-device-code` cannot be combined. `--no-browser` cannot be used without `--use-device-code`.
+- The CLI starts a Device Authorization Grant, prints `verification_uri` and `user_code`, and polls the token endpoint until you finish authorizing.
+- Because authorization happens on whichever device opens the URL, the same command works on a laptop, a headless server, or inside a container.
+- The CLI tries to open a browser by default, but always prints the URL, user code, and expiry even when the browser opens successfully.
+- `--remote` is deprecated, hidden from help, and ignored. It remains accepted only for command-line compatibility, so invocations do not fail with an unknown-flag error. Scripts that automate the previous authorization-code prompts or stdin input must be updated for the device-code flow.
 
 After login, the profile is written as `console-login` mode with a `login-session`. Logging into a non-`default` profile does not switch active profile automatically:
 
@@ -351,10 +342,7 @@ The first `bp configure sso` already authorizes. Daily service commands reuse or
 
 **How do I log in on a machine without a graphical browser?**
 
-Use `--no-browser` for SSO. For Console Login, either:
-
-- Use `--remote`, complete authorization code login on another device, and paste the displayed authorization code into the terminal.
-- Use `--use-device-code --no-browser`, enter the user code on another device, and let the CLI poll for completion.
+Use `--no-browser` for both SSO and Console Login. For Console Login, run `bp login --no-browser`, enter the printed user code on another device, and let the CLI poll for completion.
 
 **What should I enter for Scopes?**
 

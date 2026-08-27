@@ -62,7 +62,7 @@ func (c *deviceCodePollControl) handleTokenError(err error) error {
 	case "access_denied":
 		return fmt.Errorf("device authorization was denied")
 	case "expired_token", "invalid_device_code":
-		return fmt.Errorf("device code is invalid or expired; please run 'bp login --use-device-code' again")
+		return fmt.Errorf("device code is invalid or expired; please run 'bp login' again")
 	case "server_error", "temporarily_unavailable":
 		return c.noteTransient(err)
 	default:

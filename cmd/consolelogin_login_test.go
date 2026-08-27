@@ -16,94 +16,74 @@ import (
 	"time"
 )
 
-func TestConsoleLoginValidateOptions(t *testing.T) {
-	tests := []struct {
-		name    string
-		login   ConsoleLogin
-		wantErr string
-	}{
-		{
-			name:  "default authorization code flow",
-			login: ConsoleLogin{},
-		},
-		{
-			name:  "remote authorization code flow",
-			login: ConsoleLogin{Remote: true},
-		},
-		{
-			name:  "device code flow",
-			login: ConsoleLogin{UseDeviceCode: true},
-		},
-		{
-			name:  "device code flow without browser",
-			login: ConsoleLogin{UseDeviceCode: true, NoBrowser: true},
-		},
-		{
-			name:    "remote conflicts with device code",
-			login:   ConsoleLogin{Remote: true, UseDeviceCode: true},
-			wantErr: "--remote and --use-device-code",
-		},
-		{
-			name:    "no browser requires device code",
-			login:   ConsoleLogin{NoBrowser: true},
-			wantErr: "--no-browser requires --use-device-code",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.login.validateOptions()
-			if tt.wantErr == "" {
-				if err != nil {
-					t.Fatalf("validateOptions returned error: %v", err)
-				}
-				return
-			}
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestNewLoginCmdDeviceCodeFlags(t *testing.T) {
+func TestNewLoginCmdRegistersLoginFlags(t *testing.T) {
 	command := newLoginCmd()
-	for _, flag := range []string{"use-device-code", "no-browser", "remote", "endpoint-url"} {
+	for _, flag := range []string{"profile", "region", "no-browser", "remote", "endpoint-url"} {
 		if command.Flags().Lookup(flag) == nil {
 			t.Fatalf("flag --%s was not registered", flag)
 		}
 	}
 }
 
-func TestNewLoginCmdRejectsInvalidDeviceCodeFlagCombinations(t *testing.T) {
-	tests := []struct {
-		name    string
-		args    []string
-		wantErr string
-	}{
-		{
-			name:    "remote conflicts with device code",
-			args:    []string{"--remote", "--use-device-code", "--region", "ap-southeast-1"},
-			wantErr: "--remote and --use-device-code",
-		},
-		{
-			name:    "no browser requires device code",
-			args:    []string{"--no-browser", "--region", "ap-southeast-1"},
-			wantErr: "--no-browser requires --use-device-code",
-		},
+// --remote shipped in released versions, so old scripts must keep parsing
+// without hitting "unknown flag". The notice has to stay on stderr so that
+// scripts consuming stdout are unaffected.
+func TestNewLoginCmdKeepsRemoteAsHiddenNoOp(t *testing.T) {
+	command := newLoginCmd()
+	if err := command.ParseFlags([]string{"--remote", "--region", "ap-southeast-1"}); err != nil {
+		t.Fatalf("parsing --remote returned error: %v", err)
+	}
+	if !command.Flags().Lookup("remote").Hidden {
+		t.Fatal("--remote must be hidden from help output")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			command := newLoginCmd()
-			command.SilenceUsage = true
-			command.SilenceErrors = true
-			command.SetArgs(tt.args)
-			err := command.Execute()
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
-			}
+	var stdout string
+	stderr := captureConsoleLoginStderr(t, func() {
+		stdout = captureConsoleLoginStdout(t, func() {
+			warnDeprecatedRemoteFlag(command)
 		})
+	})
+	if !strings.Contains(stderr, "--remote") {
+		t.Fatalf("stderr = %q, want a --remote deprecation warning", stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty so scripts parsing stdout stay unaffected", stdout)
+	}
+}
+
+func TestNewLoginCmdStaysQuietWithoutRemote(t *testing.T) {
+	command := newLoginCmd()
+	if err := command.ParseFlags([]string{"--region", "ap-southeast-1"}); err != nil {
+		t.Fatalf("parsing flags returned error: %v", err)
+	}
+
+	stderr := captureConsoleLoginStderr(t, func() {
+		warnDeprecatedRemoteFlag(command)
+	})
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+}
+
+func TestNewLoginCmdRejectsUnreleasedDeviceCodeFlag(t *testing.T) {
+	command := newLoginCmd()
+	err := command.ParseFlags([]string{"--use-device-code"})
+	if err == nil || !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("error = %v, want unknown flag", err)
+	}
+}
+
+func TestNewLoginCmdAcceptsNoBrowserOnItsOwn(t *testing.T) {
+	command := newLoginCmd()
+	if err := command.ParseFlags([]string{"--no-browser", "--region", "ap-southeast-1"}); err != nil {
+		t.Fatalf("parsing --no-browser returned error: %v", err)
+	}
+	noBrowser, err := command.Flags().GetBool("no-browser")
+	if err != nil {
+		t.Fatalf("reading --no-browser returned error: %v", err)
+	}
+	if !noBrowser {
+		t.Fatal("--no-browser must take effect without any companion flag")
 	}
 }
 
@@ -157,7 +137,7 @@ func TestDeviceCodeAuthorizeSlowDownThenSuccess(t *testing.T) {
 		EndpointURL: server.URL,
 		HTTPClient:  server.Client(),
 	})
-	login := &ConsoleLogin{UseDeviceCode: true}
+	login := &ConsoleLogin{}
 	resp, err := login.deviceCodeAuthorize(context.Background(), client)
 	if err != nil {
 		t.Fatalf("deviceCodeAuthorize returned error: %v", err)
@@ -227,7 +207,7 @@ func TestDeviceCodeAuthorizeToleratesTransientErrorsThenSucceeds(t *testing.T) {
 		EndpointURL: server.URL,
 		HTTPClient:  server.Client(),
 	})
-	resp, err := (&ConsoleLogin{UseDeviceCode: true, NoBrowser: true}).deviceCodeAuthorize(context.Background(), client)
+	resp, err := (&ConsoleLogin{NoBrowser: true}).deviceCodeAuthorize(context.Background(), client)
 	if err != nil {
 		t.Fatalf("deviceCodeAuthorize returned error: %v", err)
 	}
@@ -285,7 +265,7 @@ func TestDeviceCodeAuthorizeAbortsAfterSustainedTransientErrors(t *testing.T) {
 		EndpointURL: server.URL,
 		HTTPClient:  server.Client(),
 	})
-	_, err := (&ConsoleLogin{UseDeviceCode: true, NoBrowser: true}).deviceCodeAuthorize(context.Background(), client)
+	_, err := (&ConsoleLogin{NoBrowser: true}).deviceCodeAuthorize(context.Background(), client)
 	if err == nil || !strings.Contains(err.Error(), "polling device authorization token") {
 		t.Fatalf("error = %v, want polling failure", err)
 	}
@@ -319,7 +299,7 @@ func TestDeviceCodeAuthorizeNoBrowser(t *testing.T) {
 			EndpointURL: server.URL,
 			HTTPClient:  server.Client(),
 		})
-		_, err := (&ConsoleLogin{UseDeviceCode: true, NoBrowser: true}).deviceCodeAuthorize(context.Background(), client)
+		_, err := (&ConsoleLogin{NoBrowser: true}).deviceCodeAuthorize(context.Background(), client)
 		if err != nil {
 			t.Fatalf("deviceCodeAuthorize returned error: %v", err)
 		}
@@ -368,7 +348,7 @@ func TestDeviceCodeAuthorizeBrowserFailureContinues(t *testing.T) {
 			EndpointURL: server.URL,
 			HTTPClient:  server.Client(),
 		})
-		_, err := (&ConsoleLogin{UseDeviceCode: true}).deviceCodeAuthorize(context.Background(), client)
+		_, err := (&ConsoleLogin{}).deviceCodeAuthorize(context.Background(), client)
 		if err != nil {
 			t.Fatalf("deviceCodeAuthorize returned error: %v", err)
 		}
@@ -435,7 +415,7 @@ func TestDeviceCodeAuthorizeTerminalErrors(t *testing.T) {
 				EndpointURL: server.URL,
 				HTTPClient:  server.Client(),
 			})
-			_, err := (&ConsoleLogin{UseDeviceCode: true, NoBrowser: true}).deviceCodeAuthorize(context.Background(), client)
+			_, err := (&ConsoleLogin{NoBrowser: true}).deviceCodeAuthorize(context.Background(), client)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
 			}
@@ -474,7 +454,7 @@ func TestDeviceCodeAuthorizeTimeout(t *testing.T) {
 		EndpointURL: server.URL,
 		HTTPClient:  server.Client(),
 	})
-	_, err := (&ConsoleLogin{UseDeviceCode: true, NoBrowser: true}).deviceCodeAuthorize(context.Background(), client)
+	_, err := (&ConsoleLogin{NoBrowser: true}).deviceCodeAuthorize(context.Background(), client)
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("error = %v, want timeout", err)
 	}
@@ -535,11 +515,10 @@ func TestConsoleLoginDeviceCodePersistsProfileAndCache(t *testing.T) {
 	defer restore()
 
 	err := (&ConsoleLogin{
-		Profile:       "device-profile",
-		Region:        "ap-southeast-1",
-		UseDeviceCode: true,
-		NoBrowser:     true,
-		EndpointURL:   server.URL,
+		Profile:     "device-profile",
+		Region:      "ap-southeast-1",
+		NoBrowser:   true,
+		EndpointURL: server.URL,
 	}).Login()
 	if err != nil {
 		t.Fatalf("Login returned error: %v", err)
@@ -641,6 +620,34 @@ func captureConsoleLoginStdout(t *testing.T, fn func()) string {
 	output, err := io.ReadAll(reader)
 	if err != nil {
 		t.Fatalf("read stdout: %v", err)
+	}
+	return string(output)
+}
+
+// captureConsoleLoginStderr mirrors captureConsoleLoginStdout for os.Stderr,
+// which is where the --remote deprecation notice goes.
+func captureConsoleLoginStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	oldStderr := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stderr pipe: %v", err)
+	}
+	os.Stderr = writer
+	restore := func() {
+		os.Stderr = oldStderr
+		_ = writer.Close()
+		_ = reader.Close()
+	}
+	defer restore()
+
+	fn()
+
+	_ = writer.Close()
+	os.Stderr = oldStderr
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read stderr: %v", err)
 	}
 	return string(output)
 }
@@ -812,44 +819,6 @@ func TestExtractLoginSessionUsesTRNClaim(t *testing.T) {
 	want := "trn:volcengine:iam:cn-beijing:2100123456:user/Admin"
 	if loginSession != want {
 		t.Fatalf("loginSession = %q, want %q", loginSession, want)
-	}
-}
-
-func TestRemoteAuthorizeAcceptsRawURLEncodedAuthorizationResponse(t *testing.T) {
-	state := "test-state"
-	authCode := "test-code"
-	input := base64.RawURLEncoding.EncodeToString([]byte("code="+authCode+"&state="+state)) + "\n"
-
-	stdin := os.Stdin
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("create stdin pipe: %v", err)
-	}
-	t.Cleanup(func() {
-		os.Stdin = stdin
-		_ = reader.Close()
-		_ = writer.Close()
-	})
-	if _, err := writer.WriteString(input); err != nil {
-		t.Fatalf("write stdin pipe: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close stdin writer: %v", err)
-	}
-	os.Stdin = reader
-
-	cl := &ConsoleLogin{EndpointURL: "https://signin.byteplus.com"}
-	oauthClient := NewConsoleOAuthClient(&ConsoleOAuthClientConfig{EndpointURL: cl.EndpointURL})
-
-	gotCode, gotRedirectURI, err := cl.remoteAuthorize(oauthClient, ConsoleClientIDCrossDevice, "challenge", state)
-	if err != nil {
-		t.Fatalf("remoteAuthorize returned error: %v", err)
-	}
-	if gotCode != authCode {
-		t.Fatalf("authCode = %q, want %q", gotCode, authCode)
-	}
-	if gotRedirectURI != "https://signin.byteplus.com/authorize/oauth/authorize" {
-		t.Fatalf("redirectURI = %q", gotRedirectURI)
 	}
 }
 
