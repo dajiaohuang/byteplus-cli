@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,12 +19,19 @@ import (
 const scopeAllAll = "Console:All:All"
 const loginCacheDirectoryEnv = "BYTEPLUS_LOGIN_CACHE_DIRECTORY"
 const defaultConsoleLoginRegion = "ap-southeast-1"
+const consoleDeviceInfo = "Byteplus CLI"
+
+var (
+	consoleLoginOpenBrowser               = util.OpenBrowser
+	consoleDeviceAuthorizationSleep       = sleepWithContext
+	consoleDeviceAuthorizationCurrentTime = time.Now
+)
 
 // ConsoleLogin holds runtime state for the byteplus login flow.
 type ConsoleLogin struct {
 	Profile     string // profile name, default "default"
 	Region      string
-	Remote      bool   // true = cross-device mode
+	NoBrowser   bool   // true = do not automatically open a browser during authorization
 	EndpointURL string // default "https://signin.byteplus.com"
 }
 
@@ -74,56 +80,15 @@ func (cl *ConsoleLogin) Login() error {
 	}
 	cl.Region = resolvedRegion
 
-	// 1. Determine client_id based on mode.
-	clientID := ConsoleClientIDSameDevice
-	if cl.Remote {
-		clientID = ConsoleClientIDCrossDevice
-	}
-
-	// 2. Generate PKCE parameters.
-	codeVerifier, err := generateCodeVerifier()
-	if err != nil {
-		return fmt.Errorf("generating code verifier: %w", err)
-	}
-	codeChallenge := generateCodeChallenge(codeVerifier)
-
-	// 3. Generate state (UUID v4).
-	state, err := generateState()
-	if err != nil {
-		return fmt.Errorf("generating state: %w", err)
-	}
-
-	// 4. Create the OAuth client.
 	oauthClient := NewConsoleOAuthClient(&ConsoleOAuthClientConfig{
 		EndpointURL: cl.EndpointURL,
 	})
 
-	// 5. Obtain the authorization code and redirect_uri used.
-	var authCode string
-	var redirectURI string
-	if cl.Remote {
-		authCode, redirectURI, err = cl.remoteAuthorize(oauthClient, clientID, codeChallenge, state)
-	} else {
-		authCode, redirectURI, err = cl.localAuthorize(oauthClient, clientID, codeChallenge, state)
-	}
+	tokenResp, err := cl.deviceCodeAuthorize(context.Background(), oauthClient)
 	if err != nil {
 		return err
 	}
 
-	// 6. Exchange authorization code for token.
-	tokenResp, err := oauthClient.ExchangeToken(context.Background(), &ConsoleTokenRequest{
-		GrantType:    "authorization_code",
-		Code:         authCode,
-		RedirectURI:  redirectURI,
-		ClientID:     clientID,
-		Scope:        scopeAllAll,
-		CodeVerifier: codeVerifier,
-	})
-	if err != nil {
-		return fmt.Errorf("exchanging authorization code for token: %w", err)
-	}
-
-	// 7. Validate STS credentials from access_token.
 	if _, err := ParseSTSCredentials(tokenResp.AccessToken); err != nil {
 		return fmt.Errorf("parsing STS credentials: %w", err)
 	}
@@ -161,7 +126,7 @@ func (cl *ConsoleLogin) Login() error {
 		RefreshToken: tokenResp.RefreshToken,
 		IDToken:      tokenResp.IDToken,
 		Scope:        scopeAllAll,
-		ClientID:     clientID,
+		ClientID:     ConsoleClientIDCrossDevice,
 		EndpointURL:  cl.EndpointURL,
 		IssuedAt:     time.Now().UTC().Format(time.RFC3339),
 		ExpiresIn:    tokenResp.ExpiresIn,
@@ -195,6 +160,85 @@ func (cl *ConsoleLogin) Login() error {
 	expiresAt := issuedAt.Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
 	fmt.Printf("STS credentials expire at: %s\n", expiresAt.Local().Format("2006-01-02 15:04:05"))
 	return nil
+}
+
+func (cl *ConsoleLogin) deviceCodeAuthorize(
+	ctx context.Context,
+	oauthClient *ConsoleOAuthClient,
+) (*ConsoleTokenResponse, error) {
+	authResp, err := oauthClient.StartDeviceAuthorization(ctx, &ConsoleDeviceAuthorizationRequest{
+		ClientID:   ConsoleClientIDCrossDevice,
+		Scope:      scopeAllAll,
+		DeviceInfo: consoleDeviceInfo,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("starting device authorization: %w", err)
+	}
+
+	browserURL := strings.TrimSpace(authResp.VerificationURIComplete)
+	if browserURL == "" {
+		browserURL = authResp.VerificationURI
+	}
+
+	if cl.NoBrowser {
+		fmt.Println("Browser will not be automatically opened.")
+	} else {
+		fmt.Println("Attempting to open your default browser.")
+	}
+	fmt.Println("Open the following URL to authorize this device:")
+	fmt.Println()
+	fmt.Println(authResp.VerificationURI)
+	fmt.Println()
+	fmt.Printf("Then enter the code:\n\n%s\n", authResp.UserCode)
+	if authResp.VerificationURIComplete != "" && authResp.VerificationURIComplete != authResp.VerificationURI {
+		fmt.Println()
+		fmt.Println("Alternatively, open the following URL to prefill the code:")
+		fmt.Println()
+		fmt.Println(authResp.VerificationURIComplete)
+	}
+	fmt.Printf("This device code expires in %d seconds.\n", authResp.ExpiresIn)
+
+	if !cl.NoBrowser {
+		if err := consoleLoginOpenBrowser(browserURL); err != nil {
+			fmt.Printf("Failed to open the browser automatically: %v\n", err)
+		}
+	}
+
+	poll := newDeviceCodePollControl(authResp.Interval)
+	deadline := consoleDeviceAuthorizationCurrentTime().Add(time.Duration(authResp.ExpiresIn) * time.Second)
+	for {
+		now := consoleDeviceAuthorizationCurrentTime()
+		if !now.Before(deadline) {
+			return nil, fmt.Errorf("device authorization timed out; please run 'bp login' again")
+		}
+
+		wait := poll.interval
+		if remaining := deadline.Sub(now); wait > remaining {
+			wait = remaining
+		}
+		if err := consoleDeviceAuthorizationSleep(ctx, wait); err != nil {
+			return nil, fmt.Errorf("waiting for device authorization: %w", err)
+		}
+		if !consoleDeviceAuthorizationCurrentTime().Before(deadline) {
+			return nil, fmt.Errorf("device authorization timed out; please run 'bp login' again")
+		}
+
+		// Poll with a single HTTP attempt: the loop itself owns the RFC 8628
+		// interval / slow_down backpressure, so the transport-level retry must
+		// not fire extra sub-second requests here.
+		tokenResp, err := oauthClient.exchangeToken(ctx, &ConsoleTokenRequest{
+			GrantType:  deviceCodeGrantType,
+			DeviceCode: authResp.DeviceCode,
+			ClientID:   ConsoleClientIDCrossDevice,
+			Scope:      scopeAllAll,
+		}, 1)
+		if err == nil {
+			return tokenResp, nil
+		}
+		if pollErr := poll.handleTokenError(err); pollErr != nil {
+			return nil, pollErr
+		}
+	}
 }
 
 func confirmLoginSessionReplacement(input io.Reader, output io.Writer, profileName, currentLoginSession, newLoginSession string) (bool, error) {
@@ -255,141 +299,6 @@ func promptForConsoleLoginRegion(input io.Reader, output io.Writer, defaultRegio
 		return defaultRegion, nil
 	}
 	return line, nil
-}
-
-// ---------------------------------------------------------------------------
-// localAuthorize runs the browser-based local redirect flow.
-// ---------------------------------------------------------------------------
-
-func (cl *ConsoleLogin) localAuthorize(
-	oauthClient *ConsoleOAuthClient,
-	clientID, codeChallenge, state string,
-) (string, string, error) {
-
-	// Start the local callback server.
-	cbServer, err := NewCallbackServer()
-	if err != nil {
-		return "", "", fmt.Errorf("starting callback server: %w", err)
-	}
-	cbServer.Start()
-	defer cbServer.Shutdown()
-
-	redirectURI := cbServer.RedirectURI()
-
-	// Build the authorize URL.
-	authorizeURL := oauthClient.BuildAuthorizeURL(&AuthorizeParams{
-		ClientID:            clientID,
-		Scope:               scopeAllAll,
-		CodeChallenge:       codeChallenge,
-		CodeChallengeMethod: "S256",
-		State:               state,
-		RedirectURI:         redirectURI,
-	})
-
-	fmt.Println("Attempting to automatically open the login page in your default browser.")
-	fmt.Println("If the browser does not open, open the following URL:")
-	fmt.Println(authorizeURL)
-
-	// Best-effort browser open.
-	_ = util.OpenBrowser(authorizeURL)
-
-	// Wait for the callback with a 10-minute timeout.
-	result, err := cbServer.WaitForCallback(10 * time.Minute)
-	if err != nil {
-		return "", "", fmt.Errorf("waiting for authorization callback: %w", err)
-	}
-
-	// Check for errors in the result.
-	if result.Error != "" {
-		desc := result.Error
-		if result.ErrorDescription != "" {
-			desc = fmt.Sprintf("%s: %s", result.Error, result.ErrorDescription)
-		}
-		return "", "", fmt.Errorf("authorization failed: %s", desc)
-	}
-
-	// Validate the state matches.
-	if result.State != state {
-		return "", "", fmt.Errorf("state mismatch: expected %s, got %s (possible CSRF attack)", state, result.State)
-	}
-
-	if result.Code == "" {
-		return "", "", fmt.Errorf("authorization callback did not include an authorization code")
-	}
-
-	return result.Code, redirectURI, nil
-}
-
-// ---------------------------------------------------------------------------
-// remoteAuthorize runs the cross-device (manual code entry) flow.
-// ---------------------------------------------------------------------------
-
-func (cl *ConsoleLogin) remoteAuthorize(
-	oauthClient *ConsoleOAuthClient,
-	clientID, codeChallenge, state string,
-) (string, string, error) {
-
-	// Default redirect_uri for cross-device flow.
-	redirectURI := strings.TrimRight(cl.EndpointURL, "/") + "/authorize/oauth/authorize"
-
-	// Build the authorize URL with the default redirect_uri for cross-device flow.
-	authorizeURL := oauthClient.BuildAuthorizeURL(&AuthorizeParams{
-		ClientID:            clientID,
-		Scope:               scopeAllAll,
-		CodeChallenge:       codeChallenge,
-		CodeChallengeMethod: "S256",
-		State:               state,
-		RedirectURI:         redirectURI,
-	})
-
-	fmt.Println("Open the following URL in a browser on any device:")
-	fmt.Println()
-	fmt.Println(authorizeURL)
-	fmt.Println()
-	fmt.Println("After completing login, enter the authorization code shown in the browser:")
-
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Print("Authorization code: ")
-	rawInput, err := reader.ReadString('\n')
-	if err != nil {
-		return "", "", fmt.Errorf("reading authorization code from stdin: %w", err)
-	}
-	rawInput = strings.TrimSpace(rawInput)
-	if rawInput == "" {
-		return "", "", fmt.Errorf("authorization code cannot be empty")
-	}
-
-	// Console 登录页可能输出标准 Base64、带 padding 的 URL Base64 或无 padding 的 URL Base64。
-	// 这里逐一兼容，避免跨设备登录时因为浏览器侧去掉 padding 导致授权码无法解析。
-	decoded, err := base64.StdEncoding.DecodeString(rawInput)
-	if err != nil {
-		decoded, err = base64.URLEncoding.DecodeString(rawInput)
-		if err != nil {
-			decoded, err = base64.RawURLEncoding.DecodeString(rawInput)
-			if err != nil {
-				return "", "", fmt.Errorf("base64 decoding authorization response: %w", err)
-			}
-		}
-	}
-
-	// Parse the decoded query string to extract code and state.
-	params, err := url.ParseQuery(string(decoded))
-	if err != nil {
-		return "", "", fmt.Errorf("parsing decoded authorization response: %w", err)
-	}
-
-	authCode := params.Get("code")
-	if authCode == "" {
-		return "", "", fmt.Errorf("decoded authorization response does not contain a \"code\" parameter")
-	}
-
-	// Validate the state to prevent CSRF attacks.
-	respondedState := params.Get("state")
-	if respondedState != state {
-		return "", "", fmt.Errorf("state mismatch: expected %s, got %s (possible CSRF attack)", state, respondedState)
-	}
-
-	return authCode, redirectURI, nil
 }
 
 // ---------------------------------------------------------------------------

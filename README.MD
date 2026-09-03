@@ -290,22 +290,26 @@ bp login
 # Recommended: specify profile and region; supports -p/-r shortcuts
 bp login -p dev -r ap-southeast-1
 
-# Cross-device login for headless/remote servers or containers
-bp login -p dev -r ap-southeast-1 --remote
+# Log in without automatically opening a browser
+bp login -p dev -r ap-southeast-1 --no-browser
 ```
 
-This command performs OAuth 2.0 + PKCE login through the BytePlus console and caches temporary STS credentials locally. Subsequent CLI commands can reuse the profile's temporary credentials.
+This command authenticates with the BytePlus console and caches temporary STS credentials locally. Subsequent CLI commands can reuse the profile's temporary credentials.
+
+Login always uses the OAuth 2.0 Device Authorization Grant: the CLI prints a verification URL and a user code, then polls for the token until you finish authorizing on any device.
 
 Parameters:
 - `--profile, -p`: Profile name, default `default`
 - `--region, -r`: Region; if not specified, you will be prompted; press Enter to use `ap-southeast-1`
-- `--remote`: Cross-device login; follow the URL shown in the terminal to complete login in a browser, then paste the authorization code back into the terminal
+- `--no-browser`: Do not automatically open a browser during login
 - `--endpoint-url`: Login service URL, default `https://signin.byteplus.com`; usually does not need to be changed
 
 Notes:
 - After successful login, the profile will be set to `console-login` mode and record a `login-session`
 - After logging in with a non-`default` profile, CLI commands will not automatically switch profiles; run `bp configure profile --profile dev` first
-- Use `--remote` when the local browser cannot redirect back to the CLI machine
+- Because authorization happens on whichever device opens the URL, the same command works on a laptop, a headless server, or inside a container
+- The CLI tries to open a browser by default, but always prints the URL, user code, and expiry even when the browser opens successfully
+- `--remote` is deprecated, hidden from help, and ignored. It remains accepted only for command-line compatibility, so invocations do not fail with an unknown-flag error. Scripts that automate the previous authorization-code prompts or stdin input must be updated for the device-code flow
 
 Full usage example:
 
