@@ -1,27 +1,13 @@
-/*
- * // Copyright (c) 2024 Bytedance Ltd. and/or its affiliates
- * //
- * // Licensed under the Apache License, Version 2.0 (the "License");
- * // you may not use this file except in compliance with the License.
- * // You may obtain a copy of the License at
- * //
- * //	http://www.apache.org/licenses/LICENSE-2.0
- * //
- * // Unless required by applicable law or agreed to in writing, software
- * // distributed under the License is distributed on an "AS IS" BASIS,
- * // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * // See the License for the specific language governing permissions and
- * // limitations under the License.
- */
-
 package util
 
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"testing"
 )
 
@@ -106,6 +92,56 @@ func TestColorfulJson(t *testing.T) {
 	checkValid(nestedArray)
 
 	checkValid(complicated)
+}
+
+func TestWriteJsonColorOutputRemainsValidAfterRemovingANSI(t *testing.T) {
+	data := map[string]interface{}{
+		"control": "a\x1bb\nc",
+		"quoted":  `"value"`,
+		"html":    "<x>",
+		"number":  json.Number("9223372036854775807"),
+		"boolean": true,
+		"null":    nil,
+	}
+	var output bytes.Buffer
+	if err := WriteJson(&output, data, true); err != nil {
+		t.Fatal(err)
+	}
+	stripped := regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAll(output.Bytes(), nil)
+	if !json.Valid(stripped) {
+		t.Fatalf("colored output is not valid JSON after ANSI removal:\n%s", stripped)
+	}
+	if !bytes.Contains(stripped, []byte(`"a\u001bb\nc"`)) {
+		t.Fatalf("control characters were not JSON-escaped: %q", stripped)
+	}
+}
+
+func TestWriteJsonPropagatesWriterErrors(t *testing.T) {
+	writerErr := errors.New("write failed")
+	writer := writerFunc(func([]byte) (int, error) {
+		return 0, writerErr
+	})
+	if err := WriteJson(writer, map[string]interface{}{"A": "b"}, true); err != writerErr {
+		t.Fatalf("error = %v, want %v", err, writerErr)
+	}
+}
+
+func TestWriteJsonDetectsShortWrite(t *testing.T) {
+	writer := writerFunc(func(p []byte) (int, error) {
+		if len(p) == 0 {
+			return 0, nil
+		}
+		return 1, nil
+	})
+	if err := WriteJson(writer, map[string]interface{}{"A": "b"}, true); err != io.ErrShortWrite {
+		t.Fatalf("error = %v, want io.ErrShortWrite", err)
+	}
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) {
+	return f(p)
 }
 
 func checkValid(data interface{}) {

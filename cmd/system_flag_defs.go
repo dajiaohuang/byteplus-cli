@@ -4,6 +4,42 @@ import (
 	"strings"
 )
 
+// Flag prefix contract (normative — do not relax without updating docs/4-Usage.md):
+//
+//  1. Double dash `--name` is the ONLY public form of a system flag. Help,
+//     completion, docs and examples must advertise `--name` only. Diagnostics may
+//     echo a `---name` the user actually typed (systemFlagDisplayName), which is
+//     feedback about the input rather than advertising the form.
+//  2. Triple dash `---name` is NOT a public form. It exists solely as a
+//     conflict escape: when the current action publishes an API parameter whose
+//     name matches a system flag exactly (case-sensitive), `--name` is routed to
+//     the API parameter and `---name` is the only way to still reach the system
+//     flag. Published BytePlus metadata currently declares no such collision, so
+//     the escape is a forward-compatibility path rather than a documented remedy.
+//  3. `---name` must never be advertised anywhere user-facing: not in
+//     localizedSystemFlagsHelp, not in shell completion, and not in the public
+//     docs (README.MD, README.CN.MD, docs/*.md) — those may not even contain the
+//     words "三横线" / "triple-dash". When an action's API parameter shadows a
+//     system flag, public docs describe a non-flag workaround (environment
+//     variable, downstream filtering) rather than the escape syntax. The escape
+//     stays an internal compatibility path, guarded by
+//     TestPublicDocsOnlyAdvertiseDoubleDashSystemFlags.
+//  4. Every public system flag must keep a reachable `---name` escape route, so
+//     the hatch already exists before a future metadata release introduces a
+//     colliding API parameter name. Collisions only happen after an API action,
+//     and there the Parser's legacyEscape route is the only one that fires:
+//     shouldExtractSystemFlagWithRegistry returns false for state
+//     afterAPIAction, so the preprocess route (resolveSystemFlags stripping
+//     `---name` before Cobra) covers pre-action positions only. Every entry in
+//     systemFlagDefs therefore keeps legacyEscape: true.
+//
+// Guards: TestSystemFlagHelpMatchesDefs (help text) and
+// TestSystemFlagsAreExposedToCompletionWithoutLegacyAliases (shell completion)
+// assert clauses (1) and (3) for the surfaces they cover;
+// TestPublicDocsOnlyAdvertiseDoubleDashSystemFlags asserts (3) for the public
+// docs listed there. Clauses (2) and (4) are conventions with no automated
+// check yet: keep them in mind when editing systemFlagDefs.
+//
 // systemFlagDef is the single source of truth for CLI system flags.
 // Parser routing, preprocess stripping, and completion registration derive
 // from this table. Public help strings are English literals in localizedSystemFlagsHelp,
@@ -13,7 +49,9 @@ type systemFlagDef struct {
 	// public marks the flag as a double-dash system flag (publicSystemFlags).
 	public bool
 	// legacyEscape marks ---name as a parser-accepted conflict escape
-	// (allowedLegacyFixedFlags). lang is preprocess-only and has no parser legacy form.
+	// (systemFlags.legacyEscapes, consumed by Parser.ReadArgs). This is the only
+	// escape route that works after an API action, so clause (4) of the prefix
+	// contract requires it on every public flag.
 	legacyEscape bool
 	// preprocess marks flags that resolveSystemFlags may strip before cobra/parser
 	// (profile/region/endpoint). force/version/method stay in-place for Parser
@@ -31,6 +69,8 @@ var systemFlagDefs = []systemFlagDef{
 	{name: "version", public: true, legacyEscape: true, preprocess: false},
 	{name: "method", public: true, legacyEscape: true, preprocess: false},
 	{name: "force", public: true, legacyEscape: true, preprocess: false, presenceOnly: true},
+	{name: "output", public: true, legacyEscape: true, preprocess: false},
+	{name: "query", public: true, legacyEscape: true, preprocess: false},
 }
 
 type systemFlagRegistry struct {
@@ -113,6 +153,8 @@ func localizedSystemFlagsHelp() string {
   --version string     ` + "API version; uses metadata when omitted (required with --force for unlisted services)." + `
   --method string      ` + "HTTP method GET or POST; explicit value overrides metadata, else metadata, else GET." + `
   --force              ` + "Skip service/action metadata validation and force the call (presence-only; write --force alone, not --force true)." + `
+  --output string      ` + "Set response output format (json|table|table-num|text|yaml|off). Default: json. table-num is table plus a row-number column. off still calls the API but skips response-dependent --query evaluation." + `
+  --query string       ` + "JMESPath expression to filter/project the full response (paths usually start at Result.*) before formatting." + `
 
 ` + "Reserved double-dash controls (not API parameters):" + `
   --header string      ` + "Add a custom HTTP header as Name=Value; repeatable. Content-Type overrides metadata when set. Host/Authorization/Content-Length are blocked." + `

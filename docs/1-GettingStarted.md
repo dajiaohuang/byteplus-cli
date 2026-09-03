@@ -139,6 +139,14 @@ Call an API:
 bp sts GetCallerIdentity
 ```
 
+Select a response field and print it as plain text:
+
+```shell
+bp sts GetCallerIdentity --query 'Result.AccountId' --output text
+```
+
+See [Filtering and Output Formats](4-Usage.md#filtering-and-output-formats) for the supported formats and query safety rules.
+
 Override region for one invocation:
 
 ```shell

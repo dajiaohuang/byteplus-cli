@@ -308,7 +308,7 @@ func TestSystemFlagHelpMatchesDefs(t *testing.T) {
 
 func TestPublicSystemFlagNamesOrder(t *testing.T) {
 	got := publicSystemFlagNames()
-	want := []string{"profile", "region", "endpoint", "version", "method", "force"}
+	want := []string{"profile", "region", "endpoint", "version", "method", "force", "output", "query"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("publicSystemFlagNames=%v want %v", got, want)
 	}

@@ -1,22 +1,24 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/byteplus-sdk/byteplus-go-sdk-v2/byteplus"
+	"github.com/byteplus-sdk/byteplus-go-sdk-v2/byteplus/byteplusquery"
 	"github.com/byteplus-sdk/byteplus-go-sdk-v2/byteplus/client"
 	"github.com/byteplus-sdk/byteplus-go-sdk-v2/byteplus/client/metadata"
 	"github.com/byteplus-sdk/byteplus-go-sdk-v2/byteplus/credentials"
 	"github.com/byteplus-sdk/byteplus-go-sdk-v2/byteplus/credentials/clicreds"
+	"github.com/byteplus-sdk/byteplus-go-sdk-v2/byteplus/custom"
 	"github.com/byteplus-sdk/byteplus-go-sdk-v2/byteplus/defaults"
 	"github.com/byteplus-sdk/byteplus-go-sdk-v2/byteplus/endpoints"
 	"github.com/byteplus-sdk/byteplus-go-sdk-v2/byteplus/request"
 	"github.com/byteplus-sdk/byteplus-go-sdk-v2/byteplus/session"
 	"github.com/byteplus-sdk/byteplus-go-sdk-v2/byteplus/signer/byteplussign"
-	"github.com/byteplus-sdk/byteplus-go-sdk-v2/byteplus/byteplusquery"
 )
 
 type SdkClient struct {
@@ -273,7 +275,10 @@ func NewSimpleClient(ctx *Context) (*SdkClient, error) {
 	config := byteplus.NewConfig().
 		WithRegion(region).
 		WithCredentials(creds).
-		WithDisableSSL(disableSSl)
+		WithDisableSSL(disableSSl).
+		WithForceJsonNumberDecode(func(context.Context, custom.RequestInfo) bool {
+			return true
+		})
 
 	// endpoint 应用规则与 classifyEndpoint / hasEffectiveFixedEndpoint 共用同一解释。
 	switch mode {
