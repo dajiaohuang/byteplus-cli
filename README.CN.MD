@@ -1,10 +1,10 @@
 [English](README.MD) | 中文
 
-## Byteplus 命令行工具
+## BytePlus 命令行工具
 
 ### 概览
 
-1. Byteplus CLI 工具
+1. BytePlus CLI 工具
 2. 最低 Go 版本要求：1.5+，推荐：1.12+
 
 ### 安装 `bp`
@@ -374,22 +374,26 @@ bp login
 # 推荐：指定 profile 和 region；支持 -p/-r 简写
 bp login -p dev -r ap-southeast-1
 
-# 面向无头/远程服务器或容器的跨设备登录
-bp login -p dev -r ap-southeast-1 --remote
+# 登录时不自动打开浏览器
+bp login -p dev -r ap-southeast-1 --no-browser
 ```
 
-该命令会通过 Byteplus 控制台执行 OAuth 2.0 + PKCE 登录，并在本地缓存临时 STS 凭证。后续 CLI 命令可以复用该 profile 的临时凭证。
+该命令会与 BytePlus 控制台完成认证，并在本地缓存临时 STS 凭证。后续 CLI 命令可以复用该 profile 的临时凭证。
+
+登录统一采用 OAuth 2.0 设备授权（Device Authorization Grant）流程：CLI 会打印验证 URL 和用户码，然后持续轮询令牌，直到你在任意设备上完成授权。
 
 参数：
 - `--profile, -p`：Profile 名称，默认值为 `default`
 - `--region, -r`：Region；如果未指定，会提示输入；按 Enter 使用 `ap-southeast-1`
-- `--remote`：跨设备登录；按终端展示的 URL 在浏览器中完成登录，然后将 authorization code 粘贴回终端
+- `--no-browser`：登录过程中不自动打开浏览器
 - `--endpoint-url`：登录服务 URL，默认值为 `https://signin.byteplus.com`；通常无需修改
 
 说明：
 - 登录成功后，profile 会被设置为 `console-login` 模式，并记录 `login-session`
 - 使用非 `default` profile 登录后，CLI 命令不会自动切换 profile；请先运行 `bp configure profile --profile dev`
-- 当本地浏览器无法重定向回 CLI 所在机器时，使用 `--remote`
+- 授权在打开该 URL 的任意设备上完成，因此同一条命令在笔记本、无头服务器和容器中都适用
+- CLI 默认会尝试打开浏览器，但即使浏览器打开成功，也总会打印 URL、用户码和有效期
+- `--remote` 已废弃、从帮助中隐藏且会被忽略。它仅为命令行兼容性保留，以免调用时因未知参数而失败。此前依赖 authorization code 交互或 stdin 输入的自动化脚本，需要改造为设备码流程
 
 完整使用示例：
 
