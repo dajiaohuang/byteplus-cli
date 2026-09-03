@@ -375,21 +375,23 @@ func TestPublicDocsOnlyAdvertiseDoubleDashSystemFlags(t *testing.T) {
 	repoRoot := filepath.Dir(filepath.Dir(currentFile))
 	publicDocs := []string{
 		"README.MD",
+		"README.CN.MD",
 		"docs/1-GettingStarted.md",
 		"docs/2-Authentication.md",
 		"docs/3-Configuration.md",
 		"docs/4-Usage.md",
 		"docs/5-Advanced.md",
 	}
+	// Public docs advertise the double-dash form only. Derive the forbidden alias
+	// list from systemFlagDefs so a newly added system flag is covered
+	// automatically; the previous hand-written list silently missed
+	// ---output / ---query.
 	forbidden := []string{
-		"---profile",
-		"---region",
-		"---endpoint",
-		"---version",
-		"---method",
-		"---force",
 		"三横线",
 		"triple-dash",
+	}
+	for _, name := range publicSystemFlagNames() {
+		forbidden = append(forbidden, "---"+name)
 	}
 
 	for _, name := range publicDocs {

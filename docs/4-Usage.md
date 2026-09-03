@@ -21,6 +21,14 @@ Argument kinds:
 
 System flags in API calls use double hyphens and are placed after the action. If an action exposes an exact-name API parameter (case-sensitive), the double-dash form is parsed as the API parameter.
 
+### Flag Prefix Contract
+
+The CLI has exactly one public flag prefix: **double dash `--name`**. System flags, API parameters and the reserved controls (`--header` / `--body`) all use double dashes.
+
+- Help output, shell completion, error messages and documentation examples show the `--name` form only.
+- Conflicts are case-sensitive and resolved against the parameters the current action actually exposes: differently cased names such as `--Region` or `--Endpoint` are always API parameters.
+- When an action exposes an API parameter with the **exact** name of a system flag, the double-dash form after that action is parsed as the API parameter; use an equivalent non-flag route for the system behaviour (see Known Name Conflicts).
+
 ## Discover Services and Actions
 
 List supported services:
@@ -105,6 +113,22 @@ After the action, a double-dash flag whose exact case-sensitive name is exposed 
 
 Names with different casing, such as `--Region` or `--Endpoint`, are always API parameters.
 
+
+### Known Name Conflicts
+
+Published BytePlus metadata currently exposes **no** API parameter whose exact case-sensitive name matches a public system flag, so every system flag keeps its system meaning after any bundled action.
+
+The rule still applies if a future metadata release introduces a colliding name: after that action the double-dash form is the API parameter, and the system behaviour has to be reached another way. What is available depends on the flag:
+
+| Shadowed flag | Alternative route |
+| --- | --- |
+| `--profile` | `bp configure profile --profile <name>` to switch the active profile first, or the `BYTEPLUS_PROFILE` / `BYTEPLUS_CLI_PROFILE` environment variables |
+| `--region` | `region` in the profile, or `BYTEPLUS_REGION` |
+| `--endpoint` | `endpoint` in the profile, or `BYTEPLUS_ENDPOINT` |
+| `--output`, `--query` | keep the default JSON response and filter it downstream (for example with `jq`) |
+| `--version`, `--method`, `--force` | no equivalent route: these have no profile field and no environment variable, so a collision on one of them would leave the behaviour unreachable through public syntax. Report it so the flag set can be revised. |
+
+For an unlisted action, metadata cannot declare a collision, so all public system flags retain their system meanings.
 
 ### Reserved Double-Dash Controls
 
@@ -331,7 +355,7 @@ Query behavior:
 - Evaluation errors that depend on response types are reported after a successful API call as response-output failures and do not panic.
 - Numeric comparisons, filters, sorting, and supported arithmetic use exact JSON decimals. Integers above 2^53 are not rounded, equivalent spellings such as `1`, `1.0`, and `1e0` compare equal, and projections retain the original token. Arithmetic with a decimal exponent above 10000 is rejected rather than silently rounded.
 
-If an action exposes an exact API parameter named `query` or `output`, the normal double-dash name is routed to that API parameter according to the standard conflict rule. For unlisted actions, metadata cannot declare such a collision, so both names retain their system-flag meanings.
+No bundled action currently exposes an exact API parameter named `query` or `output`, so both keep their system meanings everywhere. If a future metadata release introduces such a name, the double-dash form after that action is routed to the API parameter under the standard conflict rule (see Known Name Conflicts); for unlisted actions metadata cannot declare a collision, so both names always retain their system-flag meanings.
 
 ---
 

@@ -42,11 +42,11 @@ sudo cp bp /usr/local/bin
 
 `bp` 支持多种凭证模式，并按以下顺序解析凭证：
 
-1. 当前激活或运行时指定的 profile：如果存在当前 profile，或通过 `---profile` 在运行时选择了 profile，`bp` 会使用该 profile 中的凭证。
+1. 当前激活或运行时指定的 profile：如果存在当前 profile，或通过 `--profile` 在运行时选择了 profile，`bp` 会使用该 profile 中的凭证。
 2. SDK 默认凭证链：如果没有可用 profile，`bp` 会依次尝试环境变量、OIDC 环境变量、CLI profile 和 ECS Role 凭证。
 3. 如果所有方式都失败，`bp` 会返回错误。
 
-Region 可以配置在 profile 中，也可以通过 `BYTEPLUS_REGION` 设置，或在运行时通过 `---region` 覆盖。
+Region 可以配置在 profile 中，也可以通过 `BYTEPLUS_REGION` 设置，或在运行时通过 `--region` 覆盖。
 
 1. 使用 `bp configure set`：
 
@@ -204,7 +204,7 @@ bp configure set --profile [name] --mode ecsrole --role-name [role_name]
 
 使用 `bp configure set` 创建或修改 profile 后，当前激活 profile 会切换到目标 profile。
 
-> 注意：`configure set` 时 `region` 不是必填项，但调用 API 时必须能通过 profile 配置、`---region` 或 `BYTEPLUS_REGION` 获得 region。
+> 注意：`configure set` 时 `region` 不是必填项，但调用 API 时必须能通过 profile 配置、`--region` 或 `BYTEPLUS_REGION` 获得 region。
 
 附加字段：
 
@@ -529,23 +529,28 @@ bp <service> <action> [--param1 val1 --param2 val2 ...]
 
 ##### 运行时覆盖参数
 
-调用 API 时，使用 `---` 前缀传递 CLI 内部覆盖参数。这些参数不会和 API 参数冲突：
+调用 API 时，可在 action 之后使用双横线系统参数临时覆盖运行时配置：
 
-- `---profile`：在运行时使用指定 profile，且不修改配置文件。后面必须跟一个已存在的 profile 名称。
-- `---region`：在运行时覆盖 region。
+- `--profile`：在运行时使用指定 profile，且不修改配置文件。后面必须跟一个已存在的 profile 名称。
+- `--region`：在运行时覆盖 region。
+- `--endpoint`：在运行时覆盖 endpoint。
+- `--output`：设置 API 响应的输出格式，可选 `json`（默认）、`table`、`table-num`、`text`、`yaml`、`off`。
+- `--query`：用 JMESPath 表达式对完整响应做过滤和投影，在格式化之前生效。
+
+`--output` 和 `--query` 仅对本次调用生效，不会写入配置文件；详见 [过滤与输出格式](docs/4-Usage.md#filtering-and-output-formats)。
 
 ```shell
 # 使用指定 profile 调用 API。
-bp ecs DescribeInstances ---profile prod
+bp ecs DescribeInstances --profile prod
 
 # 使用指定 profile 并覆盖 region 调用 API。
-bp ecs DescribeInstances ---profile prod ---region ap-southeast-1
+bp ecs DescribeInstances --profile prod --region ap-southeast-1
 
 # 仅为本次 API 调用覆盖 region。
-bp ecs DescribeInstances ---region ap-southeast-1 --InstanceId "i-xxx"
+bp ecs DescribeInstances --region ap-southeast-1 --InstanceId "i-xxx"
 
-# `--` 参数仍会发送给 API，而 `---` 参数由 CLI 消费。
-bp ecs DescribeInstances ---profile prod ---region ap-southeast-1 --InstanceIds '["i-xxx"]'
+# 系统参数由 CLI 消费，其余双横线参数作为 API 参数发送。
+bp ecs DescribeInstances --profile prod --region ap-southeast-1 --InstanceIds '["i-xxx"]'
 ```
 
 示例：
@@ -572,12 +577,12 @@ bp rds_mysql ModifyDBInstanceIPList --body '{"InstanceId":"xxxxxx", "GroupName":
 ```shell
 # 通过 ecsrole profile 使用 ECS 实例角色凭证。
 bp configure set --profile ecs-role --mode ecsrole --role-name MyRole --region ap-southeast-1
-bp ecs DescribeInstances ---profile ecs-role
+bp ecs DescribeInstances --profile ecs-role
 
 # 通过 oidc profile 使用 OIDC 凭证。
 bp configure set --profile ci-oidc --mode oidc --region ap-southeast-1 \
   --oidc-token-file /var/run/secrets/oidc-token --role-trn trn:iam::123456789012:role/CIRole
-bp ecs DescribeInstances ---profile ci-oidc
+bp ecs DescribeInstances --profile ci-oidc
 
 # 不使用当前激活 profile，改用默认凭证链。
 export BYTEPLUS_ACCESS_KEY=AK
