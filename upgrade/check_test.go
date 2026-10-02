@@ -590,9 +590,13 @@ func TestNoticeAlreadyClaimedToday(t *testing.T) {
 	today := time.Date(y, m, d, 0, 0, 0, 0, time.Local).Unix()
 	yesterday := time.Date(y, m, d-1, 0, 0, 0, 0, time.Local).Unix()
 	future := now.Add(2 * time.Hour).Unix()
+	earlyMorning := time.Date(y, m, d, 1, 50, 0, 0, time.Local)
 
 	if !noticeAlreadyClaimedToday(versionCheckCache{NoticedAt: today, NoticedCurrent: "1.0.50"}, "1.0.50", now) {
 		t.Fatal("same current same day should claim")
+	}
+	if !noticeAlreadyClaimedToday(versionCheckCache{NoticedAt: today, NoticedCurrent: "1.0.50"}, "1.0.50", earlyMorning) {
+		t.Fatal("same current same day should claim before 09:00")
 	}
 	if noticeAlreadyClaimedToday(versionCheckCache{NoticedAt: today, NoticedCurrent: "1.0.50"}, "1.0.51", now) {
 		t.Fatal("different current should not claim")

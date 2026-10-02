@@ -1,8 +1,8 @@
-## Byteplus Command Line Tools
+## BytePlus Command Line Tools
 
 ### Overview
 
-1. Byteplus CLI Tool
+1. BytePlus CLI Tool
 2. Go 1.12+ is recommended.
 
 ### Installing `bp`
@@ -290,22 +290,26 @@ bp login
 # Recommended: specify profile and region; supports -p/-r shortcuts
 bp login -p dev -r ap-southeast-1
 
-# Cross-device login for headless/remote servers or containers
-bp login -p dev -r ap-southeast-1 --remote
+# Log in without automatically opening a browser
+bp login -p dev -r ap-southeast-1 --no-browser
 ```
 
-This command performs OAuth 2.0 + PKCE login through the Byteplus console and caches temporary STS credentials locally. Subsequent CLI commands can reuse the profile's temporary credentials.
+This command authenticates with the BytePlus console and caches temporary STS credentials locally. Subsequent CLI commands can reuse the profile's temporary credentials.
+
+Login always uses the OAuth 2.0 Device Authorization Grant: the CLI prints a verification URL and a user code, then polls for the token until you finish authorizing on any device.
 
 Parameters:
 - `--profile, -p`: Profile name, default `default`
 - `--region, -r`: Region; if not specified, you will be prompted; press Enter to use `ap-southeast-1`
-- `--remote`: Cross-device login; follow the URL shown in the terminal to complete login in a browser, then paste the authorization code back into the terminal
+- `--no-browser`: Do not automatically open a browser during login
 - `--endpoint-url`: Login service URL, default `https://signin.byteplus.com`; usually does not need to be changed
 
 Notes:
 - After successful login, the profile will be set to `console-login` mode and record a `login-session`
 - After logging in with a non-`default` profile, CLI commands will not automatically switch profiles; run `bp configure profile --profile dev` first
-- Use `--remote` when the local browser cannot redirect back to the CLI machine
+- Because authorization happens on whichever device opens the URL, the same command works on a laptop, a headless server, or inside a container
+- The CLI tries to open a browser by default, but always prints the URL, user code, and expiry even when the browser opens successfully
+- `--remote` is deprecated, hidden from help, and ignored. It remains accepted only for command-line compatibility, so invocations do not fail with an unknown-flag error. Scripts that automate the previous authorization-code prompts or stdin input must be updated for the device-code flow
 
 Full usage example:
 
@@ -443,7 +447,7 @@ Basic structure:
 bp <service> <action> [--param1 val1 --param2 val2 ...]
 ```
 
-Fixed flags use three hyphens and only affect the current invocation:
+System flags use double hyphens and only affect the current invocation:
 
 ```shell
 bp sts GetCallerIdentity --profile dev --region ap-southeast-1
@@ -455,6 +459,10 @@ Supported fixed flags:
 - `--profile`: use a configured profile only for this invocation.
 - `--region`: override the region only for this invocation.
 - `--endpoint`: override the endpoint only for this invocation.
+- `--output`: format API responses as `json` (default), `table`, `table-num`, `text`, `yaml`, or `off`.
+- `--query`: apply a JMESPath expression to the full API response before formatting.
+
+`--output` and `--query` apply only to the current invocation and are not persisted. See [Filtering and Output Formats](docs/4-Usage.md#filtering-and-output-formats) for examples and output contracts.
 
 You can enable CLI debug logs with an environment variable:
 
